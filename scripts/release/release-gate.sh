@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  echo "Usage: scripts/release/release-gate.sh"
+  echo "Runs G1: local Mainnet Candidate software/hygiene release gate."
+  echo "Passing does NOT approve public Mainnet launch. See docs/release/NETWORK_MATURITY.md."
+  exit 0
+fi
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$repo_root"
+temp_cargo_target_dir="$(mktemp -d "${TMPDIR:-/tmp}/veiron-release-gate-target.XXXXXX")"
+
+cleanup() {
+  rm -rf "$temp_cargo_target_dir"
+  rm -rf "$repo_root/veiron-explorer/node_modules" "$repo_root/veiron-website/node_modules" "$repo_root/veiron-website/server/node_modules"
+}
+
+trap cleanup EXIT
+
+assert_path_exists() {
+  local path="$1"
+  local description="$2"
+  if [[ ! -e "$path" ]]; then
+    echo "${description} is missing at ${path}" >&2
+    exit 1
+  fi
+}
+
+echo "Running Veiron G1 security and release gate (Mainnet Candidate rehearsal only)..."
+echo "This is NOT a public Mainnet launch approval. See docs/release/NETWORK_MATURITY.md"
+
+rm -rf "$repo_root/target" "$repo_root/target-msvc" "$repo_root/veiron-explorer/node_modules" "$repo_root/veiron-website/node_modules" "$repo_root/veiron-website/server/node_modules"
+
+bash scripts/security/check-secrets.sh
+bash scripts/security/check-repo-hygiene.sh
+bash scripts/security/check-config-safety.sh
+
+assert_path_exists "configs/mainnet-candidate.toml" "Mainnet-candidate config"
+assert_path_exists "docs/release/MAINNET_CANDIDATE_CHECKLIST.md" "Mainnet-candidate checklist"
+assert_path_exists "docs/release/RELEASE_GATE.md" "Release gate documentation"
+assert_path_exists "docs/release/NETWORK_MATURITY.md" "Network maturity documentation"
+assert_path_exists "docs/security/SECURITY_GATE.md" "Security gate documentation"
+assert_path_exists "docs/security/SECRET_HANDLING.md" "Secret handling documentation"
+assert_path_exists "docs/release/GENESIS.md" "Genesis documentation"
+
+cargo fmt --all --check
+CARGO_TARGET_DIR="$temp_cargo_target_dir" cargo test --workspace
+CARGO_TARGET_DIR="$temp_cargo_target_dir" cargo clippy --workspace --all-targets -- -D warnings
+CARGO_TARGET_DIR="$temp_cargo_target_dir" cargo build --workspace --release
+
+if [[ -f veiron-explorer/package.json ]]; then
+  pushd veiron-explorer >/dev/null
+  npm install
+  npm run build
+  popd >/dev/null
+fi
+
+echo ""
+echo "G1 release gate PASSED (Mainnet Candidate software/hygiene only)."
+echo "NOT a public Mainnet approval. Next: G2 checklist + NETWORK_MATURITY.md G4 for launch."

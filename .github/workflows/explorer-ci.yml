@@ -1,0 +1,46 @@
+name: Explorer CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "veiron-explorer/**"
+      - ".github/workflows/explorer-ci.yml"
+  pull_request:
+    paths:
+      - "veiron-explorer/**"
+      - ".github/workflows/explorer-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: explorer-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  explorer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: veiron-explorer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: veiron-explorer/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build explorer
+        run: npm run build

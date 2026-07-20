@@ -1,0 +1,3 @@
+- [x] Configure JVM targets in `app/build.gradle.kts`
+- [x] Verify build success
+- [x] Address `kotlinOptions` deprecation (decided to keep it for compatibility as `compilerOptions` failed to resolve)

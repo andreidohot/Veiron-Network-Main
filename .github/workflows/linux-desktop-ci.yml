@@ -1,0 +1,75 @@
+name: Linux Desktop CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "veiron-desktop-tauri/**"
+      - "veiron-core/**"
+      - "veiron-node/**"
+      - "veiron-rpc-gateway/**"
+      - "veiron-indexer/**"
+      - "veiron-miner/**"
+      - "veiron-wallet/**"
+      - "scripts/release/build-linux-desktop.sh"
+      - "scripts/local/**"
+      - "veiron.sh"
+      - ".github/workflows/linux-desktop-ci.yml"
+  pull_request:
+    paths:
+      - "veiron-desktop-tauri/**"
+      - "veiron-core/**"
+      - "veiron-node/**"
+      - "veiron-rpc-gateway/**"
+      - "veiron-indexer/**"
+      - "veiron-miner/**"
+      - "veiron-wallet/**"
+      - "scripts/release/build-linux-desktop.sh"
+      - "scripts/local/**"
+      - "veiron.sh"
+      - ".github/workflows/linux-desktop-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-desktop-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Jimver/cuda-toolkit@3d45d157f327c09c04b50ee6ccdea2d9d017ec76
+        with:
+          cuda: "13.2.0"
+          method: network
+          sub-packages: '["nvcc", "cudart-dev"]'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: veiron-desktop-tauri/package-lock.json
+
+      - name: Install Linux packaging dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+          libsecret-1-dev libdbus-1-dev zenity fakeroot rpm libarchive-tools
+
+      - name: Build Linux Tauri packages
+        run: bash scripts/release/build-linux-desktop.sh
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: veiron-linux-desktop
+          if-no-files-found: error
+          path: veiron-release/apps/linux/*

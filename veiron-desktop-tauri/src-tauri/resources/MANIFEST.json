@@ -1,0 +1,15 @@
+﻿{
+    "opencl_mining":  false,
+    "operator":  "veiron.ps1",
+    "binaries":  [
+                     "bin/veiron-miner.exe",
+                     "bin/veiron-node.exe",
+                     "bin/veiron-rpc-gateway.exe",
+                     "bin/veiron-indexer.exe"
+                 ],
+    "keystore_helper":  "bin/veiron-keystore-helper.exe",
+    "mining_backend":  "cuda",
+    "platform":  "windows",
+    "prepared_at_utc":  "2026-07-18T12:28:14.4891673Z",
+    "cpu_mining":  false
+}

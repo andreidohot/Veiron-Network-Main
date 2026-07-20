@@ -1,0 +1,35 @@
+import { RPC_URL } from "./constants";
+import type { AppSettings } from "./types";
+
+export const DEFAULT_APP_SETTINGS: AppSettings = {
+  rpc_url: RPC_URL,
+  language: "en",
+  theme: "dark",
+  density: "comfortable",
+  accent: "cyan",
+  refresh_interval_ms: 12_000,
+  live_log_interval_ms: 5_000,
+  reduce_motion: false,
+  confirm_before_operator: true,
+  auto_start_services: false,
+  start_minimized: false,
+  notify_block_mined: true,
+  notify_sound: true,
+  notify_updates: true,
+  auto_update: true,
+  auto_update_interval_secs: 900,
+  hide_balances: false,
+  mask_addresses: false,
+  show_advanced_metrics: true,
+  show_technical_labels: true,
+  default_miner_mode: "solo",
+  default_miner_backend: "cuda",
+  default_gpu_intensity: 75,
+  default_gpu_devices: [],
+  default_pool_url: "https://rpcnode.dohotstudio.com/pool",
+  pool_urls: ["https://rpcnode.dohotstudio.com/pool"],
+  default_worker_name: "desktop-01",
+  default_page: "overview",
+  open_external_explorer: true,
+  keep_logs_days: 14
+};
