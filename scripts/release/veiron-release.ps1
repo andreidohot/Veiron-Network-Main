@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2.0
+$script:ReleaseManagerVersion = "3.1.0"
 
 function Write-Title {
     param([string]$Text)
@@ -440,8 +441,8 @@ function Get-NextCandidateTag {
 
     $escapedVersion = [regex]::Escape($Version)
     $max = 0
-    foreach ($tag in (Get-CandidateTags -Version $Version)) {
-        if ($tag -match "^v${escapedVersion}-candidate\.(\d+)$") {
+    foreach ($existingTag in (Get-CandidateTags -Version $Version)) {
+        if ($existingTag -match "^v${escapedVersion}-candidate\.(\d+)$") {
             $number = [int]$Matches[1]
             if ($number -gt $max) {
                 $max = $number
@@ -538,6 +539,10 @@ function Sync-And-CheckRepository {
 function Create-And-PushCandidateTag {
     param([switch]$Custom)
 
+    $tag = $null
+    $branch = $null
+    $version = $null
+
     Write-Title "Creeaza candidate tag si porneste release-urile"
     $branch = Sync-And-CheckRepository
     $version = Get-DesktopVersion
@@ -549,6 +554,10 @@ function Create-And-PushCandidateTag {
     }
     else {
         $tag = Get-NextCandidateTag -Version $version
+    }
+
+    if ([string]::IsNullOrWhiteSpace([string]$tag)) {
+        throw "Nu am putut genera tag-ul candidate. Verifica versiunea aplicatiei si incearca din nou."
     }
 
     Assert-ReleaseTagFormat -Tag $tag
@@ -692,6 +701,9 @@ function Start-WorkflowForTag {
 }
 
 function Restart-IndependentWorkflows {
+    $tag = $null
+    $defaultBranch = $null
+
     Write-Title "Relanseaza un release independent"
 
     Invoke-Native -Command "git" -Arguments @("fetch", "origin", "--tags", "--prune") | Out-Null
@@ -699,7 +711,10 @@ function Restart-IndependentWorkflows {
         throw "Pentru relansare manuala instaleaza GitHub CLI si ruleaza gh auth login."
     }
 
-    $tag = Select-ExistingTag
+    $tag = [string](Select-ExistingTag)
+    if ([string]::IsNullOrWhiteSpace($tag)) {
+        throw "Nu a fost selectat niciun tag."
+    }
     if (-not (Test-TagExistsRemotely -Tag $tag)) {
         throw "Tag-ul $tag nu exista pe origin."
     }
@@ -755,6 +770,8 @@ function Restart-IndependentWorkflows {
 }
 
 function Upload-LocalArtifactsForExistingTag {
+    $tag = $null
+
     Write-Title "Urca artefacte locale intr-un tag existent"
 
     Invoke-Native -Command "git" -Arguments @("fetch", "origin", "--tags", "--prune") | Out-Null
@@ -762,7 +779,10 @@ function Upload-LocalArtifactsForExistingTag {
         throw "Pentru upload local instaleaza GitHub CLI si ruleaza gh auth login."
     }
 
-    $tag = Select-ExistingTag
+    $tag = [string](Select-ExistingTag)
+    if ([string]::IsNullOrWhiteSpace($tag)) {
+        throw "Nu a fost selectat niciun tag."
+    }
     if (-not (Test-TagExistsRemotely -Tag $tag)) {
         throw "Tag-ul $tag nu exista pe origin."
     }
@@ -792,8 +812,8 @@ function Show-CandidateTags {
         Write-Warn "Nu exista candidate tags."
         return
     }
-    foreach ($tag in $tags) {
-        Write-Host "  $tag"
+    foreach ($candidateTag in $tags) {
+        Write-Host "  $candidateTag"
     }
 }
 
@@ -831,7 +851,7 @@ else {
     $script:ResolvedArtifactsPath = Join-Path $repoRoot $ArtifactsPath
 }
 
-Write-Title "Veiron Independent Release Manager"
+Write-Title "Veiron Independent Release Manager v$script:ReleaseManagerVersion"
 Write-Ok "Repository: $repoRoot"
 Write-Info "Artefacte locale: $script:ResolvedArtifactsPath"
 
@@ -862,6 +882,14 @@ while ($true) {
         }
     }
     catch {
-        Write-Fail $_.Exception.Message
+        $currentError = $_
+        Write-Fail $currentError.Exception.Message
+        if ($null -ne $currentError.InvocationInfo -and $currentError.InvocationInfo.ScriptLineNumber -gt 0) {
+            Write-Host ("[DEBUG] Fisier: {0}" -f $currentError.InvocationInfo.ScriptName) -ForegroundColor DarkGray
+            Write-Host ("[DEBUG] Linia:  {0}" -f $currentError.InvocationInfo.ScriptLineNumber) -ForegroundColor DarkGray
+            if (-not [string]::IsNullOrWhiteSpace($currentError.InvocationInfo.Line)) {
+                Write-Host ("[DEBUG] Cod:    {0}" -f $currentError.InvocationInfo.Line.Trim()) -ForegroundColor DarkGray
+            }
+        }
     }
 }

@@ -75,3 +75,9 @@ gh auth login
 ```
 
 Consulta si `CUM-FACI-RELEASE.md` pentru fluxul complet.
+
+## Fix v3.1.0
+
+- initializeaza explicit variabilele de tag pentru compatibilitate cu `Set-StrictMode`;
+- evita reutilizarea variabilei `$tag` in bucle helper;
+- afiseaza fisierul si linia exacta daca mai apare o eroare PowerShell.
