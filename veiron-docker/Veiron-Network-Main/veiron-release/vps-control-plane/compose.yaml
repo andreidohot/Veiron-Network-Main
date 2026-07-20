@@ -37,11 +37,11 @@ services:
     ports:
       - "${P2P_PORT:-20787}:20787/tcp"
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -x veiron-node >/dev/null"]
+      test: ["CMD-SHELL", "pgrep -x veiron-node >/dev/null && curl -fsS http://127.0.0.1:10787/health >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 5s
-      retries: 8
-      start_period: 30s
+      retries: 12
+      start_period: 60s
     mem_limit: ${NODE_MEMORY_LIMIT:-3G}
     cpus: 2.0
 
@@ -369,11 +369,18 @@ services:
     image: gcr.io/cadvisor/cadvisor:v0.52.1
     container_name: veiron-cadvisor
     restart: unless-stopped
-    privileged: true
+    privileged: false
     devices:
       - /dev/kmsg
     networks:
       - veiron-internal
+    cap_add:
+      - SYS_ADMIN
+      - SYSLOG
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
@@ -471,7 +478,8 @@ services:
       POSTGRES_HOST: postgres
     volumes:
       - ./:/workspace
-      - /var/run/docker.sock:/var/run/docker.sock
+      # NOTA: backup-agent NU mai are acces la docker.sock.
+      # Backup-ul se face prin pg_dump direct la PostgreSQL.
     secrets:
       - postgres_password
       - backup_passphrase
@@ -496,7 +504,8 @@ services:
       VEIRON_WORKSPACE: /workspace
     volumes:
       - ./:/workspace
-      - /var/run/docker.sock:/var/run/docker.sock
+      # NOTA: updater NU mai are acces la docker.sock.
+      # Update-ul se face prin API-ul veiron-ops.
     entrypoint: ["/workspace/scripts/update-stack.sh"]
     secrets:
       - setup_token

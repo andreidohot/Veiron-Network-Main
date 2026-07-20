@@ -27,7 +27,7 @@ LOG_DIR = STATE_DIR / "ops"
 SETUP_TOKEN_FILE = Path(os.environ.get("SETUP_TOKEN_FILE", SECRETS_DIR / "setup_token"))
 DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[A-Za-z]{2,63}$")
 NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
-MULTIADDR_RE = re.compile(r"^/(?:dns4|ip4|ip6)/[^/]+/tcp/[0-9]{1,5}$")
+MULTIADDR_RE = re.compile(r"^/(?:dns4|dns|ip4|ip6)/[^/]+/tcp/[0-9]{1,5}$")
 
 job_lock = threading.Lock()
 job_state: dict[str, Any] = {
@@ -63,9 +63,9 @@ def ensure_layout() -> None:
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
         if directory != SECRETS_DIR:
-            # Bind-mounted service data must be writable by the fixed UIDs used
-            # by Rust, Grafana, Prometheus, Loki and Alloy containers.
-            os.chmod(directory, 0o777)
+            # Bind-mounted service data — 755 în loc de 777 pentru securitate.
+            # Containerele rulează cu UID-uri fixe, nu e nevoie de world-writable.
+            os.chmod(directory, 0o755)
     os.chmod(SECRETS_DIR, 0o700)
 
 def read_or_create_secret(path: Path, length: int = 32) -> str:
