@@ -1,0 +1,38 @@
+server:
+  port: ${SERVER_PORT:2333}
+  address: 0.0.0.0
+
+lavalink:
+  server:
+    password: "${LAVALINK_SERVER_PASSWORD:youshallnotpass}"
+    sources:
+      youtube: true
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      nico: false
+      http: true
+      local: false
+    bufferDurationMs: 400
+    frameBufferDurationMs: 5000
+    opusEncodingQuality: 10
+    resamplingQuality: LOW
+    trackStuckThresholdMs: 10000
+    useSeekGhosting: true
+    youtubePlaylistLoadLimit: 6
+    playerUpdateInterval: 5
+    youtubeSearchEnabled: true
+    soundcloudSearchEnabled: true
+
+metrics:
+  prometheus:
+    enabled: false
+    endpoint: /metrics
+
+logging:
+  file:
+    path: ./logs/
+  level:
+    root: INFO
+    lavalink: INFO

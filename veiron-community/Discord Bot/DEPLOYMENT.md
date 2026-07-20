@@ -1,0 +1,112 @@
+# Veiron Community Bot Deployment
+
+## Local Run
+
+```bash
+cp .env.example .env
+npm install
+npm run dashboard:build
+npm run prisma:generate
+npm run prisma:generate:ledger
+npm run migrate:json-to-prisma:dry-run
+npm run migrate:json-to-prisma
+npm run check
+npm run register
+npm start
+```
+
+## Docker Run
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+docker compose logs -f
+```
+
+Dashboard:
+
+```text
+http://SERVER_IP:8787/admin/
+```
+
+The dashboard is a React + Vite SPA. Docker builds it automatically. For non-Docker deployments, run `npm run dashboard:build` before `npm start`; the admin panel serves `src/dashboard/dist`.
+
+The dashboard is also an installable PWA. Android install and web push require HTTPS or localhost. Offline mode shows the last cached read-only dashboard data after a successful online login.
+
+Use the seeded admin email/password to login. For first deployment, set `ADMIN_DEFAULT_EMAIL`, `ADMIN_DEFAULT_PASSWORD`, a strong `ADMIN_JWT_SECRET` and a strong `ADMIN_TOTP_ENCRYPTION_KEY`. Admin authentication uses the main Prisma database, so run `npm run prisma:push` before enabling the panel.
+
+Admin 2FA and lockout settings:
+
+```bash
+ADMIN_TOTP_ENCRYPTION_KEY=replace_with_at_least_32_random_characters
+ADMIN_LOCKOUT_MAX_ATTEMPTS=5
+ADMIN_LOCKOUT_MINUTES=15
+```
+
+Enable TOTP from the dashboard settings section after the first successful login. Once enabled, login requires a valid authenticator code.
+
+Protected admin endpoints have explicit minimum roles. Operational read routes for moderation, tickets, automod and anti-spam require `MODERATOR`; settings writes and embed sends require `ADMIN`; dashboard, guild, proposals, announcements and self-service 2FA routes require `VIEWER`.
+
+Optional web push settings:
+
+```bash
+npm run push:vapid
+WEB_PUSH_VAPID_PUBLIC_KEY=generated_public_key
+WEB_PUSH_VAPID_PRIVATE_KEY=generated_private_key
+WEB_PUSH_SUBJECT=mailto:admin@veiron.local
+```
+
+Without VAPID keys, the PWA still installs and works offline, but push subscriptions stay disabled.
+
+## Required Discord Settings
+
+In the Discord Developer Portal:
+
+- enable Server Members Intent;
+- enable Message Content Intent for automod;
+- invite the bot with Manage Roles, Manage Channels, Manage Server, Manage Messages, Moderate Members, Kick Members, Ban Members, View Channels, Send Messages, Read Message History and Use Slash Commands.
+- for music, also include Connect and Speak permissions.
+- keep the bot role above every Discord role configured as an XP level reward.
+
+## Music Service
+
+The music module is disabled by default. To enable it:
+
+```bash
+MUSIC_ENABLED=true
+LAVALINK_HOST=lavalink
+LAVALINK_PORT=2333
+LAVALINK_PASSWORD=replace_with_long_random_password
+MUSIC_DEFAULT_VOLUME=70
+```
+
+Docker Compose starts a separate Lavalink service. For non-Docker deployments, run Lavalink separately and point the bot to its host, port and password.
+
+Docker Compose mounts `lavalink/application.yml` into the Lavalink container. Keep `LAVALINK_PASSWORD` and `LAVALINK_SERVER_PASSWORD` aligned when changing the service password.
+
+For larger deployments, use `LAVALINK_NODES` instead of the single-node variables:
+
+```json
+[
+  { "name": "primary", "url": "http://lavalink-a:2333", "auth": "password-a" },
+  { "name": "backup", "url": "http://lavalink-b:2333", "auth": "password-b" }
+]
+```
+
+The `/health` endpoint includes configured Lavalink nodes, ready nodes, player stats and queue count.
+
+## Production Notes
+
+- Use `STORAGE_DRIVER=prisma` with `DATABASE_PROVIDER` and `DATABASE_URL` for database-backed community storage.
+- Use a separate `DATABASE_URL_LEDGER` for financial ledger data.
+- Run `npm run prisma:push` and `npm run prisma:push:ledger` after configuring new Prisma databases. The main push creates the dedicated `XpProfile` table used by XP/Leveling.
+- Before switching production to `STORAGE_DRIVER=prisma`, run `npm run migrate:json-to-prisma:dry-run`, then `npm run migrate:json-to-prisma`.
+- Set `LOG_LEVEL=info` in production and use `/health` for bot, DB, Lavalink and chain-client readiness checks.
+- Run `npm run check` before deployment; it includes syntax checks, dashboard build and unit tests.
+- Rotate `ADMIN_DEFAULT_PASSWORD` after first login by replacing the seeded user password through the next admin-user management task.
+- Set and back up `ADMIN_TOTP_ENCRYPTION_KEY`; changing it invalidates stored TOTP secrets.
+- Set and back up `WEB_PUSH_VAPID_PRIVATE_KEY` before enabling web push.
+- Keep `ADMIN_PANEL_HOST=127.0.0.1` unless using a reverse proxy or private tunnel.
+- Use HTTPS before exposing the dashboard publicly.
+- Keep `./data` backed up.
+- Never commit `.env`.

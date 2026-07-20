@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model StoreItem {
+  collection String
+  id         String
+  data       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@id([collection, id])
+  @@index([collection, createdAt])
+}
+
+model StoreSingleton {
+  collection String   @id
+  data       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model User {
+  id           String         @id
+  email        String         @unique
+  displayName  String?
+  passwordHash String
+  role         String
+  totpEnabled  Boolean        @default(false)
+  totpSecret   String?
+  failedLoginAttempts Int      @default(0)
+  lockedUntil  DateTime?
+  disabled     Boolean        @default(false)
+  lastLoginAt  DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id        String    @id
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId, expiresAt])
+}
+
+model XpProfile {
+  id                      String    @id
+  guildId                 String
+  userId                  String
+  userTag                 String?
+  xp                      Int       @default(0)
+  level                   Int       @default(0)
+  messageXp               Int       @default(0)
+  voiceXp                 Int       @default(0)
+  messageCount            Int       @default(0)
+  awardedMessageCount     Int       @default(0)
+  cooldownSkippedMessages Int       @default(0)
+  voiceSeconds            Int       @default(0)
+  lastMessageAt           DateTime?
+  lastMessageXpAt         DateTime?
+  activeVoiceChannelId    String?
+  activeVoiceJoinedAt     DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@unique([guildId, userId])
+  @@index([guildId, level])
+  @@index([guildId, xp])
+}

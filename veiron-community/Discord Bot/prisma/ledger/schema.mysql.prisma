@@ -1,0 +1,56 @@
+generator ledgerClient {
+  provider = "prisma-client-js"
+  output   = "../../src/generated/ledger-client"
+}
+
+datasource ledger {
+  provider = "mysql"
+  url      = env("DATABASE_URL_LEDGER")
+}
+
+model LedgerWallet {
+  id                   String              @id
+  discordUserId        String              @unique
+  custodyMode          String
+  address              String              @unique
+  encryptedKeyEnvelope String?
+  externalAddress      String?
+  dailyLimit           String              @default("0")
+  balanceLimit         String              @default("0")
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  balances             LedgerBalance[]
+  transactions         LedgerTransaction[]
+}
+
+model LedgerBalance {
+  id        String       @id
+  walletId  String
+  asset     String       @default("VIRE")
+  available String       @default("0")
+  locked    String       @default("0")
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  wallet    LedgerWallet @relation(fields: [walletId], references: [id])
+
+  @@unique([walletId, asset])
+}
+
+model LedgerTransaction {
+  id          String       @id
+  walletId    String
+  type        String
+  status      String
+  amount      String
+  asset       String       @default("VIRE")
+  fromAddress String?
+  toAddress   String?
+  txHash      String?
+  metadata    String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  wallet      LedgerWallet @relation(fields: [walletId], references: [id])
+
+  @@index([walletId, createdAt])
+  @@index([status, createdAt])
+}

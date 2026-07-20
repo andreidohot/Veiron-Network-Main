@@ -1,0 +1,566 @@
+:root {
+  color-scheme: dark;
+  --bg: #08090d;
+  --panel: #10131a;
+  --surface: #0c0e14;
+  --input: #080a10;
+  --line: #242938;
+  --text: #f2f4f8;
+  --muted: #9aa3b2;
+  --gold: #d4af37;
+  --gold-soft: rgba(212, 175, 55, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  border: 1px solid var(--line);
+  background: #121620;
+  color: var(--text);
+  min-height: 38px;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0 12px;
+}
+
+button:hover:not(:disabled),
+button.active {
+  border-color: var(--gold);
+  background: var(--gold-soft);
+}
+
+button:disabled,
+input:disabled,
+textarea:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--input);
+  color: var(--text);
+  border-radius: 6px;
+  min-height: 38px;
+  padding: 9px 10px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 6px;
+}
+
+h3 {
+  margin-bottom: 4px;
+}
+
+p {
+  color: var(--muted);
+}
+
+pre {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+
+.dashboard-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+
+.sidebar {
+  border-right: 1px solid var(--line);
+  padding: 24px 16px;
+  background: var(--surface);
+}
+
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+.brand small {
+  display: block;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.mark {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--gold);
+  display: grid;
+  place-items: center;
+  color: var(--gold);
+  font-weight: 800;
+}
+
+nav {
+  display: grid;
+  gap: 8px;
+}
+
+nav button {
+  text-align: left;
+}
+
+main {
+  padding: 28px;
+  min-width: 0;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 20px;
+}
+
+.auth-panel {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: min(620px, 100%);
+}
+
+.auth-panel span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.auth-box {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(110px, 0.7fr) auto auto;
+  gap: 8px;
+  width: 100%;
+}
+
+.notice,
+.panel,
+.stat,
+.item {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+}
+
+.notice {
+  padding: 12px 14px;
+  color: var(--muted);
+  margin-bottom: 18px;
+}
+
+.notice strong,
+.block-line {
+  display: block;
+}
+
+.notice strong {
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.panel {
+  padding: 18px;
+  max-width: 960px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  padding: 16px;
+}
+
+.stat strong {
+  display: block;
+  font-size: 28px;
+  color: var(--gold);
+}
+
+.stat span,
+.muted {
+  color: var(--muted);
+}
+
+.list,
+.form-grid,
+.settings-grid,
+.totp-box,
+.roadmap-panel,
+.placeholder-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.form-grid {
+  max-width: 720px;
+}
+
+.xp-settings-form {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.automod-settings-form {
+  max-width: none;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+
+.checkbox-row input {
+  width: auto;
+  min-height: auto;
+}
+
+.xp-preview {
+  margin-top: 14px;
+}
+
+.form-section {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.reward-grid,
+.shop-grid,
+.custom-rule-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.reward-row,
+.shop-row,
+.custom-rule-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.35fr) minmax(180px, 1fr);
+  gap: 8px 10px;
+  align-items: center;
+}
+
+.custom-rule-row {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.placeholder-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.inline-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.permission-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.7fr);
+  gap: 16px;
+}
+
+.permission-form {
+  max-width: none;
+}
+
+.role-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.role-option {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: start;
+  color: var(--text);
+}
+
+.role-option input {
+  width: auto;
+  min-height: auto;
+  margin-top: 4px;
+}
+
+.role-option span {
+  display: grid;
+  gap: 2px;
+}
+
+.role-option small {
+  color: var(--muted);
+}
+
+.permission-summary {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.audit-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.75fr) minmax(0, 1.25fr);
+  gap: 16px;
+}
+
+.audit-filter-form {
+  max-width: none;
+  align-content: start;
+}
+
+.audit-results {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.audit-event {
+  background: var(--surface);
+}
+
+.audit-event-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.audit-event-header span,
+.audit-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.audit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.audit-meta span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: var(--input);
+}
+
+.blockchain-layout,
+.chart-grid,
+.chart-card,
+.chain-alert {
+  display: grid;
+  gap: 12px;
+}
+
+.blockchain-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.blockchain-stats .stat strong {
+  font-size: 22px;
+}
+
+.chain-alert {
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  background: rgba(212, 175, 55, 0.12);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.chain-alert.critical {
+  border-color: rgba(139, 30, 36, 0.8);
+  background: rgba(139, 30, 36, 0.24);
+}
+
+.chain-alert strong {
+  color: var(--gold);
+}
+
+.chain-alert span {
+  color: var(--text);
+}
+
+.chart-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.chart-card {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.chart-header strong {
+  color: var(--gold);
+}
+
+.chart-header span,
+.chart-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chart-card svg {
+  width: 100%;
+  height: auto;
+  max-height: 180px;
+  overflow: visible;
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart-grid-line {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.chart-card circle {
+  fill: var(--gold);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.item {
+  padding: 12px;
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.item strong {
+  color: var(--gold);
+}
+
+@media (max-width: 980px) {
+  .dashboard-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  nav {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  }
+
+  header {
+    display: grid;
+  }
+
+  .auth-panel {
+    justify-items: stretch;
+  }
+
+  .permission-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .blockchain-toolbar {
+    align-items: stretch;
+    display: grid;
+  }
+}
+
+@media (max-width: 720px) {
+  main,
+  .sidebar {
+    padding: 18px;
+  }
+
+  .auth-box,
+  .inline-form,
+  .reward-row,
+  .shop-row,
+  .custom-rule-row {
+    grid-template-columns: 1fr;
+  }
+}

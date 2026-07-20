@@ -1,0 +1,39 @@
+services:
+  veiron-community-bot:
+    build:
+      context: .
+      args:
+        DATABASE_PROVIDER: ${DATABASE_PROVIDER:-sqlite}
+        DATABASE_URL: ${DATABASE_URL:-file:./data/veiron-community.db}
+        DATABASE_URL_LEDGER: ${DATABASE_URL_LEDGER:-file:./data/veiron-ledger.db}
+    container_name: veiron-community-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_PROVIDER: ${DATABASE_PROVIDER:-sqlite}
+      DATABASE_URL: ${DATABASE_URL:-file:./data/veiron-community.db}
+      DATABASE_URL_LEDGER: ${DATABASE_URL_LEDGER:-file:./data/veiron-ledger.db}
+      LAVALINK_HOST: lavalink
+      LAVALINK_PORT: ${LAVALINK_PORT:-2333}
+      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+    depends_on:
+      - lavalink
+
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4
+    container_name: veiron-lavalink
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: 2333
+      LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+      _JAVA_OPTIONS: -Xmx512m
+    volumes:
+      - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
+    expose:
+      - "2333"
