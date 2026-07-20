@@ -1,0 +1,608 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+import secrets
+import shlex
+import subprocess
+import threading
+import time
+from pathlib import Path
+from typing import Any
+from urllib.parse import quote
+
+import requests
+from flask import Flask, Response, jsonify, make_response, redirect, render_template, request, url_for
+
+app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
+
+WORKSPACE = Path(os.environ.get("VEIRON_WORKSPACE", "/workspace")).resolve()
+COMPOSE_FILE = Path(os.environ.get("VEIRON_COMPOSE_FILE", WORKSPACE / "compose.yaml"))
+STATE_DIR = WORKSPACE / "state"
+SECRETS_DIR = STATE_DIR / "secrets"
+GENERATED_DIR = STATE_DIR / "config" / "generated"
+LOG_DIR = STATE_DIR / "ops"
+SETUP_TOKEN_FILE = Path(os.environ.get("SETUP_TOKEN_FILE", SECRETS_DIR / "setup_token"))
+DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[A-Za-z]{2,63}$")
+NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+MULTIADDR_RE = re.compile(r"^/(?:dns4|ip4|ip6)/[^/]+/tcp/[0-9]{1,5}$")
+
+job_lock = threading.Lock()
+job_state: dict[str, Any] = {
+    "running": False,
+    "kind": None,
+    "started_at": None,
+    "finished_at": None,
+    "success": None,
+    "output": "",
+}
+
+def ensure_layout() -> None:
+    directories = [
+        SECRETS_DIR, GENERATED_DIR, LOG_DIR,
+        STATE_DIR / "data" / "chain",
+        STATE_DIR / "data" / "mempool",
+        STATE_DIR / "data" / "indexer",
+        STATE_DIR / "data" / "node",
+        STATE_DIR / "control",
+        STATE_DIR / "pool",
+        STATE_DIR / "postgres",
+        STATE_DIR / "prometheus",
+        STATE_DIR / "grafana",
+        STATE_DIR / "loki",
+        STATE_DIR / "alloy",
+        STATE_DIR / "alertmanager",
+        STATE_DIR / "caddy" / "data",
+        STATE_DIR / "caddy" / "config",
+        STATE_DIR / "backups",
+        STATE_DIR / "metrics",
+        STATE_DIR / "rollback",
+    ]
+    for directory in directories:
+        directory.mkdir(parents=True, exist_ok=True)
+        if directory != SECRETS_DIR:
+            # Bind-mounted service data must be writable by the fixed UIDs used
+            # by Rust, Grafana, Prometheus, Loki and Alloy containers.
+            os.chmod(directory, 0o777)
+    os.chmod(SECRETS_DIR, 0o700)
+
+def read_or_create_secret(path: Path, length: int = 32) -> str:
+    if path.exists() and path.stat().st_size:
+        return path.read_text(encoding="utf-8").strip()
+    value = secrets.token_urlsafe(length)
+    path.write_text(value + "\n", encoding="utf-8")
+    os.chmod(path, 0o600)
+    return value
+
+def setup_token() -> str:
+    ensure_layout()
+    return read_or_create_secret(SETUP_TOKEN_FILE, 24)
+
+def authorized() -> bool:
+    expected = setup_token()
+    supplied = (
+        request.args.get("token")
+        or request.headers.get("X-Veiron-Setup-Token")
+        or request.cookies.get("veiron_setup_token")
+    )
+    return bool(supplied and secrets.compare_digest(supplied, expected))
+
+def require_auth():
+    if not authorized():
+        return jsonify({"error": "invalid or missing setup token"}), 401
+    return None
+
+def write_secret(name: str, value: str, keep_existing: bool = True) -> None:
+    path = SECRETS_DIR / name
+    if keep_existing and not value and path.exists():
+        return
+    if not value:
+        value = secrets.token_urlsafe(32)
+    path.write_text(value.strip() + "\n", encoding="utf-8")
+    os.chmod(path, 0o600)
+
+def env_quote(value: Any) -> str:
+    text = str(value)
+    if "\n" in text or "\r" in text:
+        raise ValueError("environment values may not contain newlines")
+    return "'" + text.replace("'", "'\"'\"'") + "'"
+
+def bool_text(value: Any) -> str:
+    return "true" if value in (True, "true", "1", 1, "yes", "on") else "false"
+
+def run_command(args: list[str], timeout: int = 1800, check: bool = True) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["COMPOSE_FILE"] = str(COMPOSE_FILE)
+    result = subprocess.run(
+        args,
+        cwd=WORKSPACE,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout,
+    )
+    if check and result.returncode != 0:
+        raise RuntimeError(f"command failed ({result.returncode}): {' '.join(map(shlex.quote, args))}\n{result.stdout}")
+    return result
+
+def compose_args(*args: str, profiles: list[str] | None = None) -> list[str]:
+    cmd = ["docker", "compose", "--env-file", str(WORKSPACE / ".env"), "-f", str(COMPOSE_FILE)]
+    for profile in profiles or []:
+        cmd.extend(["--profile", profile])
+    cmd.extend(args)
+    return cmd
+
+def validate_payload(data: dict[str, Any]) -> dict[str, Any]:
+    base_domain = str(data.get("base_domain", "")).strip().lower()
+    node_name = str(data.get("node_name", "")).strip()
+    admin_email = str(data.get("admin_email", "")).strip()
+    if not DOMAIN_RE.match(base_domain):
+        raise ValueError("base_domain is invalid")
+    if not NAME_RE.match(node_name):
+        raise ValueError("node_name must use letters, digits, dot, underscore or hyphen")
+    if "@" not in admin_email:
+        raise ValueError("admin_email is invalid")
+
+    cloudflare_mode = str(data.get("cloudflare_mode", "disabled"))
+    if cloudflare_mode not in {"disabled", "dns", "tunnel"}:
+        raise ValueError("cloudflare_mode must be disabled, dns or tunnel")
+
+    control_role = str(data.get("control_role", "controller"))
+    if control_role not in {"standalone", "controller", "agent"}:
+        raise ValueError("control_role must be standalone, controller or agent")
+    if control_role == "agent" and not str(data.get("controller_url", "")).startswith("https://"):
+        raise ValueError("agent role requires an HTTPS controller_url")
+
+    deployment_source = str(data.get("deployment_source", "build"))
+    if deployment_source not in {"build", "ghcr"}:
+        raise ValueError("deployment_source must be build or ghcr")
+
+    enable_pool = bool(data.get("enable_pool"))
+    if enable_pool and not str(data.get("pool_address", "")).strip():
+        raise ValueError("pool_address is required when the pool is enabled")
+
+    if cloudflare_mode != "disabled":
+        for field in ("cloudflare_account_id", "cloudflare_zone_id", "cloudflare_api_token"):
+            if not str(data.get(field, "")).strip():
+                raise ValueError(f"{field} is required for Cloudflare automation")
+
+    if bool(data.get("alert_email_enabled")):
+        for field in ("alert_smtp_host", "alert_smtp_from", "alert_smtp_to"):
+            if not str(data.get(field, "")).strip():
+                raise ValueError(f"{field} is required when email alerts are enabled")
+
+    if str(data.get("telegram_bot_token", "")).strip() and not str(data.get("telegram_chat_id", "")).strip():
+        raise ValueError("telegram_chat_id is required when Telegram alerts are configured")
+
+    raw_seeds = str(data.get("seed_nodes", "")).replace("\n", ",")
+    seed_nodes = [item.strip() for item in raw_seeds.split(",") if item.strip()]
+    for seed in seed_nodes:
+        if not MULTIADDR_RE.match(seed):
+            raise ValueError(f"invalid P2P seed multiaddress: {seed}")
+        try:
+            port = int(seed.rsplit("/", 1)[1])
+        except ValueError as exc:
+            raise ValueError(f"invalid P2P seed port: {seed}") from exc
+        if port < 1 or port > 65535:
+            raise ValueError(f"P2P seed port is out of range: {seed}")
+
+    return {
+        **data,
+        "base_domain": base_domain,
+        "node_name": node_name,
+        "admin_email": admin_email,
+        "cloudflare_mode": cloudflare_mode,
+        "control_role": control_role,
+        "deployment_source": deployment_source,
+        "enable_pool": enable_pool,
+        "seed_nodes": seed_nodes,
+    }
+
+def write_alertmanager_config(data: dict[str, Any]) -> None:
+    email_enabled = bool(data.get("alert_email_enabled"))
+    smtp_host = str(data.get("alert_smtp_host", "")).strip()
+    smtp_port = int(data.get("alert_smtp_port", 587) or 587)
+    smtp_smarthost = f"{smtp_host}:{smtp_port}" if smtp_host else ""
+    smtp_from = str(data.get("alert_smtp_from", "")).strip()
+    smtp_to = str(data.get("alert_smtp_to", "")).strip()
+    smtp_username = str(data.get("alert_smtp_username", "")).strip()
+    smtp_password = str(data.get("alert_smtp_password", "")).strip()
+    if smtp_password:
+        write_secret("smtp_password", smtp_password, keep_existing=False)
+
+    receivers = [
+        {
+            "name": "veiron-webhook",
+            "webhook_configs": [{
+                "url": "http://veiron-ops:8080/api/alerts/discord",
+                "send_resolved": True,
+            }],
+        }
+    ]
+    receiver_name = "veiron-webhook"
+
+    config_lines = [
+        "global:",
+        "  resolve_timeout: 5m",
+    ]
+    if email_enabled and smtp_host and smtp_from and smtp_to:
+        config_lines += [
+            f"  smtp_smarthost: {json.dumps(smtp_smarthost)}",
+            f"  smtp_from: {json.dumps(smtp_from)}",
+            f"  smtp_auth_username: {json.dumps(smtp_username)}",
+            "  smtp_auth_password_file: /run/secrets/smtp_password",
+            f"  smtp_require_tls: {str(bool(data.get('alert_smtp_starttls', True))).lower()}",
+        ]
+        receiver_name = "veiron-combined"
+        receivers.append({
+            "name": receiver_name,
+            "webhook_configs": [{
+                "url": "http://veiron-ops:8080/api/alerts/discord",
+                "send_resolved": True,
+            }],
+            "email_configs": [{
+                "to": smtp_to,
+                "send_resolved": True,
+            }],
+        })
+
+    config_lines += [
+        "route:",
+        f"  receiver: {receiver_name}",
+        "  group_by: [alertname, service]",
+        "  group_wait: 30s",
+        "  group_interval: 5m",
+        "  repeat_interval: 4h",
+        "receivers:",
+    ]
+    for receiver in receivers:
+        config_lines.append(f"  - name: {receiver['name']}")
+        for webhook in receiver.get("webhook_configs", []):
+            config_lines += [
+                "    webhook_configs:",
+                f"      - url: {json.dumps(webhook['url'])}",
+                f"        send_resolved: {str(webhook['send_resolved']).lower()}",
+            ]
+        for email in receiver.get("email_configs", []):
+            config_lines += [
+                "    email_configs:",
+                f"      - to: {json.dumps(email['to'])}",
+                f"        send_resolved: {str(email['send_resolved']).lower()}",
+            ]
+    config_lines += [
+        "inhibit_rules:",
+        "  - source_matchers: [severity=\"critical\"]",
+        "    target_matchers: [severity=\"warning\"]",
+        "    equal: [alertname, service]",
+    ]
+    (GENERATED_DIR / "alertmanager.yml").write_text("\n".join(config_lines) + "\n", encoding="utf-8")
+
+def configure(data: dict[str, Any]) -> None:
+    ensure_layout()
+    base = data["base_domain"]
+
+    hosts = {
+        "CONTROL_HOST": data.get("control_host") or f"control.{base}",
+        "RPC_HOST": data.get("rpc_host") or f"rpc.{base}",
+        "FLEET_HOST": data.get("fleet_host") or f"fleet.{base}",
+        "GRAFANA_HOST": data.get("grafana_host") or f"grafana.{base}",
+        "PROMETHEUS_HOST": data.get("prometheus_host") or f"prometheus.{base}",
+        "POOL_HOST": data.get("pool_host") or f"pool.{base}",
+        "P2P_HOST": data.get("p2p_host") or f"node.{base}",
+    }
+
+    admin_password = str(data.get("admin_password", "")).strip()
+    grafana_password = str(data.get("grafana_password", "")).strip()
+    postgres_password = str(data.get("postgres_password", "")).strip()
+
+    write_secret("admin_password", admin_password)
+    write_secret("grafana_password", grafana_password)
+    write_secret("postgres_password", postgres_password)
+    write_secret("pool_admin_token", str(data.get("pool_admin_token", "")))
+    write_secret("backup_passphrase", str(data.get("backup_passphrase", "")))
+    write_secret("cloudflare_api_token", str(data.get("cloudflare_api_token", "")), keep_existing=False)
+    write_secret("r2_secret_access_key", str(data.get("r2_secret_access_key", "")), keep_existing=False)
+    write_secret("discord_webhook", str(data.get("discord_webhook", "")), keep_existing=False)
+    write_secret("telegram_bot_token", str(data.get("telegram_bot_token", "")), keep_existing=False)
+    write_secret("smtp_password", str(data.get("alert_smtp_password", "")), keep_existing=False)
+    read_or_create_secret(SECRETS_DIR / "cloudflare_tunnel_token", 48)
+
+    pg_password = (SECRETS_DIR / "postgres_password").read_text(encoding="utf-8").strip()
+    pg_user = str(data.get("postgres_user", "veiron")).strip() or "veiron"
+    pg_db = str(data.get("postgres_db", "veiron")).strip() or "veiron"
+    database_url = f"postgresql://{quote(pg_user, safe='')}:{quote(pg_password, safe='')}@postgres:5432/{quote(pg_db, safe='')}"
+    write_secret("database_url", database_url, keep_existing=False)
+    write_secret("postgres_exporter_dsn", database_url + "?sslmode=disable", keep_existing=False)
+
+    env_values = {
+        "COMPOSE_PROJECT_NAME": "veiron-control-plane",
+        "STACK_VERSION": "1.0.0",
+        "TZ": data.get("timezone", "Europe/Bucharest"),
+        "DEPLOYMENT_SOURCE": data["deployment_source"],
+        "VEIRON_VERSION": data.get("veiron_version", "latest"),
+        "VEIRON_RUNTIME_IMAGE": data.get("veiron_runtime_image", "ghcr.io/andreidohot/veiron-runtime"),
+        "VEIRON_OPS_IMAGE": data.get("veiron_ops_image", "ghcr.io/andreidohot/veiron-ops"),
+        "VEIRON_BACKUP_IMAGE": data.get("veiron_backup_image", "ghcr.io/andreidohot/veiron-backup"),
+        "BASE_DOMAIN": base,
+        "NODE_NAME": data["node_name"],
+        "ADMIN_EMAIL": data["admin_email"],
+        "ADMIN_USER": data.get("admin_user", "veiron-admin"),
+        "CONTROL_ROLE": data["control_role"],
+        "CONTROLLER_URL": data.get("controller_url", ""),
+        "ENROLLMENT_TOKEN": data.get("enrollment_token", ""),
+        "RELEASE_BUNDLE_URL": data.get("release_bundle_url", ""),
+        **hosts,
+        "HTTP_PORT": data.get("http_port", 80),
+        "HTTPS_PORT": data.get("https_port", 443),
+        "P2P_PORT": data.get("p2p_port", 20787),
+        "SEED_NODES_TOML": ", ".join(json.dumps(seed) for seed in data.get("seed_nodes", [])),
+        "OPS_BOOTSTRAP_PORT": data.get("ops_bootstrap_port", 8080),
+        "CLOUDFLARE_MODE": data["cloudflare_mode"],
+        "CLOUDFLARE_ACCOUNT_ID": data.get("cloudflare_account_id", ""),
+        "CLOUDFLARE_ZONE_ID": data.get("cloudflare_zone_id", ""),
+        "CLOUDFLARE_TUNNEL_NAME": data.get("cloudflare_tunnel_name", "veiron-control-plane"),
+        "PUBLIC_IPV4": data.get("public_ipv4", ""),
+        "CLOUDFLARE_PROXY_HTTP": bool_text(data.get("cloudflare_proxy_http", True)),
+        "ENABLE_POOL": bool_text(data["enable_pool"]),
+        "POOL_NAME": data.get("pool_name", "Veiron Reference Pool"),
+        "POOL_ADDRESS": data.get("pool_address", ""),
+        "INDEXER_INTERVAL_SECONDS": data.get("indexer_interval_seconds", 15),
+        "POSTGRES_DB": pg_db,
+        "POSTGRES_USER": pg_user,
+        "PROMETHEUS_RETENTION": data.get("prometheus_retention", "30d"),
+        "LOKI_RETENTION_HOURS": data.get("loki_retention_hours", 720),
+        "GRAFANA_ADMIN_USER": data.get("grafana_admin_user", "admin"),
+        "ALERT_DISCORD_ENABLED": bool_text(bool(data.get("discord_webhook"))),
+        "ALERT_TELEGRAM_ENABLED": bool_text(bool(data.get("telegram_bot_token"))),
+        "TELEGRAM_CHAT_ID": data.get("telegram_chat_id", ""),
+        "ALERT_EMAIL_ENABLED": bool_text(data.get("alert_email_enabled")),
+        "ALERT_SMTP_HOST": data.get("alert_smtp_host", ""),
+        "ALERT_SMTP_PORT": data.get("alert_smtp_port", 587),
+        "ALERT_SMTP_FROM": data.get("alert_smtp_from", ""),
+        "ALERT_SMTP_TO": data.get("alert_smtp_to", ""),
+        "ALERT_SMTP_USERNAME": data.get("alert_smtp_username", ""),
+        "ALERT_SMTP_STARTTLS": bool_text(data.get("alert_smtp_starttls", True)),
+        "BACKUP_INTERVAL_SECONDS": data.get("backup_interval_seconds", 86400),
+        "BACKUP_RETENTION_DAYS": data.get("backup_retention_days", 30),
+        "CHAIN_SNAPSHOT_ENABLED": bool_text(data.get("chain_snapshot_enabled", True)),
+        "CHAIN_SNAPSHOT_STOP_SERVICES": bool_text(data.get("chain_snapshot_stop_services", True)),
+        "BACKUP_REMOTE_ENABLED": bool_text(data.get("backup_remote_enabled", False)),
+        "R2_ENDPOINT": data.get("r2_endpoint", ""),
+        "R2_BUCKET": data.get("r2_bucket", ""),
+        "R2_ACCESS_KEY_ID": data.get("r2_access_key_id", ""),
+        "R2_REGION": data.get("r2_region", "auto"),
+        "NODE_MEMORY_LIMIT": data.get("node_memory_limit", "3G"),
+        "RPC_MEMORY_LIMIT": data.get("rpc_memory_limit", "3G"),
+        "CONTROL_MEMORY_LIMIT": data.get("control_memory_limit", "1G"),
+        "INDEXER_MEMORY_LIMIT": data.get("indexer_memory_limit", "1G"),
+        "POSTGRES_MEMORY_LIMIT": data.get("postgres_memory_limit", "1G"),
+    }
+
+    lines = ["# Generated by Veiron Docker Setup. Do not commit this file."]
+    for key, value in env_values.items():
+        lines.append(f"{key}={env_quote(value)}")
+    (WORKSPACE / ".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(WORKSPACE / ".env", 0o600)
+
+    write_alertmanager_config(data)
+
+def deploy(data: dict[str, Any]) -> str:
+    configure(data)
+    output: list[str] = []
+
+    validate = run_command(compose_args("config"), timeout=120)
+    output.append("$ docker compose config\n" + validate.stdout)
+
+    if data["cloudflare_mode"] != "disabled":
+        cf = run_command(compose_args("run", "--rm", "cloudflare-bootstrap", profiles=["tools"]), timeout=300)
+        output.append("$ cloudflare bootstrap\n" + cf.stdout)
+
+    profiles: list[str] = ["backup"]
+    if data["cloudflare_mode"] == "tunnel":
+        profiles.append("cloudflare")
+    if data["enable_pool"]:
+        profiles.append("pool")
+
+    if data["deployment_source"] == "ghcr":
+        pull = run_command(compose_args("pull", profiles=profiles), timeout=1800)
+        output.append("$ docker compose pull\n" + pull.stdout)
+        up_args = ("up", "-d", "--remove-orphans")
+    else:
+        up_args = ("up", "-d", "--build", "--remove-orphans")
+
+    up = run_command(compose_args(*up_args, profiles=profiles), timeout=3600)
+    output.append("$ docker compose up\n" + up.stdout)
+
+    health = run_command(["/workspace/scripts/health-check-docker.sh"], timeout=300)
+    output.append("$ health check\n" + health.stdout)
+    return "\n".join(output)
+
+def start_job(kind: str, fn, *args) -> bool:
+    with job_lock:
+        if job_state["running"]:
+            return False
+        job_state.update({
+            "running": True,
+            "kind": kind,
+            "started_at": time.time(),
+            "finished_at": None,
+            "success": None,
+            "output": "",
+        })
+
+    def runner():
+        try:
+            output = fn(*args)
+            success = True
+        except Exception as exc:  # noqa: BLE001
+            output = f"{type(exc).__name__}: {exc}"
+            success = False
+        with job_lock:
+            job_state.update({
+                "running": False,
+                "finished_at": time.time(),
+                "success": success,
+                "output": output[-100000:],
+            })
+            (LOG_DIR / f"{kind}-{int(time.time())}.log").write_text(output, encoding="utf-8")
+    threading.Thread(target=runner, daemon=True).start()
+    return True
+
+@app.before_request
+def initialize() -> None:
+    ensure_layout()
+
+@app.get("/health")
+def health() -> Response:
+    return jsonify({"ok": True, "workspace": str(WORKSPACE)})
+
+@app.get("/")
+def index() -> Response:
+    token = request.args.get("token")
+    if token and secrets.compare_digest(token, setup_token()):
+        response = make_response(render_template("index.html"))
+        secure_cookie = request.headers.get("X-Forwarded-Proto", "").lower() == "https"
+        response.set_cookie(
+            "veiron_setup_token",
+            token,
+            httponly=True,
+            samesite="Strict",
+            secure=secure_cookie,
+        )
+        return response
+    if not authorized():
+        return render_template("login.html"), 401
+    return render_template("index.html")
+
+@app.post("/api/deploy")
+def api_deploy() -> Response:
+    denied = require_auth()
+    if denied:
+        return denied
+    try:
+        data = validate_payload(request.get_json(force=True))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if not start_job("deploy", deploy, data):
+        return jsonify({"error": "another operation is already running"}), 409
+    return jsonify({"accepted": True})
+
+@app.get("/api/job")
+def api_job() -> Response:
+    denied = require_auth()
+    if denied:
+        return denied
+    with job_lock:
+        return jsonify(dict(job_state))
+
+@app.get("/api/stack")
+def api_stack() -> Response:
+    denied = require_auth()
+    if denied:
+        return denied
+    if not (WORKSPACE / ".env").exists():
+        return jsonify({"configured": False, "services": []})
+    result = run_command(compose_args("ps", "--format", "json"), timeout=60, check=False)
+    services = []
+    for line in result.stdout.splitlines():
+        try:
+            services.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return jsonify({"configured": True, "returncode": result.returncode, "services": services})
+
+@app.post("/api/backup")
+def api_backup() -> Response:
+    denied = require_auth()
+    if denied:
+        return denied
+    if not start_job(
+        "backup",
+        lambda: run_command(
+            compose_args("run", "--rm", "backup-agent", "/opt/veiron-backup/backup-now.sh", profiles=["backup"]),
+            timeout=3600,
+        ).stdout,
+    ):
+        return jsonify({"error": "another operation is already running"}), 409
+    return jsonify({"accepted": True})
+
+@app.post("/api/update")
+def api_update() -> Response:
+    denied = require_auth()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    version = str(payload.get("version", "")).strip()
+    args = compose_args("run", "--rm", "updater", profiles=["tools"])
+    if version:
+        args.extend(["--version", version])
+    if not start_job("update", lambda: run_command(args, timeout=3600).stdout):
+        return jsonify({"error": "another operation is already running"}), 409
+    return jsonify({"accepted": True})
+
+@app.post("/api/rollback")
+def api_rollback() -> Response:
+    denied = require_auth()
+    if denied:
+        return denied
+    args = compose_args("run", "--rm", "updater", "--rollback", profiles=["tools"])
+    if not start_job("rollback", lambda: run_command(args, timeout=1800).stdout):
+        return jsonify({"error": "another operation is already running"}), 409
+    return jsonify({"accepted": True})
+
+@app.post("/api/alerts/discord")
+def alert_fanout() -> Response:
+    payload = request.get_json(silent=True) or {}
+    alerts = payload.get("alerts", [])
+    discord_lines = []
+    plain_lines = []
+    for alert in alerts[:20]:
+        status = str(alert.get("status", "unknown")).upper()
+        labels = alert.get("labels", {})
+        annotations = alert.get("annotations", {})
+        name = labels.get("alertname", "Veiron alert")
+        service = labels.get("service", labels.get("job", "unknown"))
+        summary = annotations.get("summary", annotations.get("description", ""))
+        discord_lines.append(f"**[{status}] {name}** · `{service}`\n{summary}")
+        plain_lines.append(f"[{status}] {name} · {service}\n{summary}")
+    if not discord_lines:
+        discord_lines = ["Veiron Alertmanager notification received."]
+        plain_lines = ["Veiron Alertmanager notification received."]
+
+    delivered = []
+    errors = []
+    webhook_file = Path(os.environ.get("DISCORD_WEBHOOK_FILE", SECRETS_DIR / "discord_webhook"))
+    webhook = webhook_file.read_text(encoding="utf-8").strip() if webhook_file.exists() else ""
+    if webhook:
+        try:
+            response = requests.post(webhook, json={"content": "\n\n".join(discord_lines)[:1900]}, timeout=10)
+            response.raise_for_status()
+            delivered.append("discord")
+        except requests.RequestException as exc:
+            errors.append(f"discord: {exc}")
+
+    telegram_file = Path(os.environ.get("TELEGRAM_BOT_TOKEN_FILE", SECRETS_DIR / "telegram_bot_token"))
+    telegram_token = telegram_file.read_text(encoding="utf-8").strip() if telegram_file.exists() else ""
+    telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if telegram_token and telegram_chat_id:
+        try:
+            response = requests.post(
+                f"https://api.telegram.org/bot{telegram_token}/sendMessage",
+                json={"chat_id": telegram_chat_id, "text": "\n\n".join(plain_lines)[:3900]},
+                timeout=10,
+            )
+            response.raise_for_status()
+            delivered.append("telegram")
+        except requests.RequestException as exc:
+            errors.append(f"telegram: {exc}")
+
+    status = 200 if delivered else 202
+    return jsonify({"accepted": bool(delivered), "delivered": delivered, "errors": errors}), status
+
+print(f"Veiron setup token: {setup_token()}", flush=True)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)

@@ -1,0 +1,225 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "stat",
+      "title": "RPC health",
+      "id": 1,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "veiron-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "probe_success{instance=\"http://veiron-rpc:10787/health\"}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN"
+                },
+                "1": {
+                  "text": "UP"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Control health",
+      "id": 2,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "veiron-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "probe_success{instance=\"http://veiron-control:10788/health\"}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Host free disk %",
+      "id": 3,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "veiron-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "100 * node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last backup age",
+      "id": 4,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "veiron-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "time() - veiron_backup_last_success_unixtime",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU by Veiron container",
+      "id": 5,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "veiron-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name=~\"veiron-.*\"}[5m]))",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory by Veiron container",
+      "id": 6,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "veiron-prometheus"
+      },
+      "targets": [
+        {
+          "expr": "container_memory_working_set_bytes{name=~\"veiron-.*\"}",
+          "legendFormat": "{{name}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Veiron logs",
+      "id": 7,
+      "datasource": {
+        "type": "loki",
+        "uid": "veiron-loki"
+      },
+      "targets": [
+        {
+          "expr": "{project=\"veiron-network\"}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      }
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": [
+    "veiron",
+    "docker",
+    "mainnet-candidate"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Veiron Docker Overview",
+  "uid": "veiron-docker-overview",
+  "version": 1
+}

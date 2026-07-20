@@ -1,0 +1,25 @@
+name: veiron-installer
+
+services:
+  veiron-installer:
+    image: ${VEIRON_OPS_IMAGE:-ghcr.io/andreidohot/veiron-ops}:${VEIRON_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: docker/ops/Dockerfile
+    container_name: veiron-installer
+    restart: unless-stopped
+    init: true
+    environment:
+      VEIRON_WORKSPACE: /workspace
+      VEIRON_COMPOSE_FILE: /workspace/compose.yaml
+      OPS_BOOTSTRAP_PORT: ${OPS_BOOTSTRAP_PORT:-8080}
+      SETUP_TOKEN_FILE: /workspace/state/secrets/setup_token
+      DISCORD_WEBHOOK_FILE: /workspace/state/secrets/discord_webhook
+      TELEGRAM_BOT_TOKEN_FILE: /workspace/state/secrets/telegram_bot_token
+    ports:
+      - "${OPS_BOOTSTRAP_PORT:-8080}:8080"
+    volumes:
+      - ./:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    security_opt:
+      - no-new-privileges:true
