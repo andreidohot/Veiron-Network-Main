@@ -1,12 +1,11 @@
-<!-- docs/_navbar.md -->
-
 - [Home](/)
-- Documentation
+- Technical
   - [Architecture](architecture/README.md)
   - [Protocol](protocol/README.md)
-  - [Mining](mining/README.md)
   - [API](api/README.md)
+  - [Mining](mining/README.md)
+- Operations
   - [Security](security/README.md)
-  - [Operations](operator/LOCAL_RUNBOOK.md)
-- [Network Status](release/NETWORK_MATURITY.md)
+  - [Runbook](operator/LOCAL_RUNBOOK.md)
+  - [Release Status](release/NETWORK_MATURITY.md)
 - [GitHub](https://github.com/andreidohot/Veiron-Network-Main)

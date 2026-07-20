@@ -1,66 +1,44 @@
-# Veiron Documentation Website Setup
+# Install the Tauri-style Veiron documentation theme
 
-Copy the files from this package into the repository's existing `docs/` directory.
-
-Expected structure:
+Copy these files into the repository's existing `docs/` directory:
 
 ```text
-docs/
-├── index.html
-├── .nojekyll
-├── _coverpage.md
-├── _navbar.md
-├── _sidebar.md
-├── _404.md
-└── assets/
-    └── docs.css
+index.html
+.nojekyll
+_404.md
+_coverpage.md
+_navbar.md
+_sidebar.md
+assets/docs.css
 ```
 
-Do not replace the existing Markdown documentation files.
+Keep all existing Markdown documents.
 
-## Commit from VS Code
+Then run:
 
 ```bash
 git switch main
 git pull origin main
-
-git add docs/index.html docs/.nojekyll docs/_coverpage.md docs/_navbar.md docs/_sidebar.md docs/_404.md docs/assets/docs.css
-git commit -m "docs: add GitHub Pages documentation website"
+git add docs
+git commit -m "docs: align website with Veiron Control Center design"
 git push origin main
 ```
 
-## Enable GitHub Pages
-
-Open the repository on GitHub and go to:
+GitHub Pages must use:
 
 ```text
 Settings → Pages
-```
-
-Choose:
-
-```text
 Source: Deploy from a branch
 Branch: main
 Folder: /docs
 ```
 
-Save the configuration.
-
-The public website should use:
+Public URL:
 
 ```text
 https://andreidohot.github.io/Veiron-Network-Main/
 ```
 
-## Local preview
-
-From the repository root, run:
-
-```bash
-npx serve docs
-```
-
-Then open the local address displayed by the command.
-
-The site uses Docsify and renders the Markdown documents directly. No documentation build step is required.
+The logo is loaded from the canonical `veiron-desktop-tauri/public/logo-mark.png`
+asset through GitHub's raw content URL so the documentation uses the same mark
+as Veiron Control Center.
