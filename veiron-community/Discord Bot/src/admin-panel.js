@@ -82,6 +82,7 @@ import {
 } from "./push-notifications.js";
 import { normalizeXpSettings } from "./xp-leveling.js";
 import { finalizeSetupWizard, getSetupWizardPublicConfig, getSetupWizardStatus } from "./runtime-config.js";
+import { buildWebWorkspaceOverview, saveWebPreferences } from "./web-workspace.js";
 
 const logger = childLogger({ module: "admin-panel" });
 
@@ -91,6 +92,8 @@ export const ADMIN_ROUTE_ROLES = Object.freeze({
   "POST /auth/totp/confirm": "VIEWER",
   "POST /auth/totp/disable": "VIEWER",
   "GET /api/dashboard/summary": "VIEWER",
+  "GET /api/web/overview": "VIEWER",
+  "PATCH /api/web/preferences": "VIEWER",
   "GET /api/guild": "VIEWER",
   "GET /api/control/overview": "VIEWER",
   "GET /api/control/members": "MODERATOR",
@@ -603,6 +606,14 @@ export async function startAdminPanel({ client, guildId, store, permissions = nu
 
   app.get("/api/modules/overview", role("GET", "/api/modules/overview"), asyncRoute(async (_request, response) => {
     response.json(await buildModuleCenterOverview({ store, guildId, client }));
+  }));
+
+  app.get("/api/web/overview", role("GET", "/api/web/overview"), asyncRoute(async (request, response) => {
+    response.json(await buildWebWorkspaceOverview({ store, guildId, client, user: request.adminUser }));
+  }));
+
+  app.patch("/api/web/preferences", role("PATCH", "/api/web/preferences"), asyncRoute(async (request, response) => {
+    response.json(await saveWebPreferences({ store, guildId, user: request.adminUser, payload: request.body ?? {} }));
   }));
 
   app.get("/api/modules/events", role("GET", "/api/modules/events"), asyncRoute(async (request, response) => {

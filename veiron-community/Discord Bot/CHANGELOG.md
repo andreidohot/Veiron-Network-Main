@@ -1,16 +1,24 @@
 # Changelog
 
+## 7.36.0
+
+- Added **Web Workspace** at `/admin/#web` as a personal Admin Web control room for VBOS staff.
+- Added `/api/web/overview` and `/api/web/preferences` with VIEWER+ RBAC for persisted Admin Web preferences.
+- Added DB-backed per-admin workspace preferences: default route, pinned panels, favorite quick actions, density, compact mode, reduced motion and optional-panel visibility.
+- Added command palette in the Admin Web shell with `Ctrl+K` / `Cmd+K`, panel search and quick-action navigation.
+- Added sidebar filtering, pinned route markers, disabled route state for role-limited panels and UI density classes.
+- Added Web Workspace module registry entry in Module Center, locked as a core web module.
+- Added web workspace events and audit entries for preference changes.
+- Added tests for preference normalization, role-filtered availability, persisted preferences and web/audit events.
+
 ## 7.35.0
 
 - Added Command Center at `/admin/#commands` with a full catalog of VBOS slash commands, command categories, runtime stats, module counts, custom command counts, automation flow counts and audit tail.
 - Added `/api/commands/overview` with MODERATOR+ RBAC for Admin Web command visibility.
-- Added new Discord slash command groups: `/vbos`, `/modules`, `/automations`, `/operations`, `/server`, `/member-role` and `/channel-control`.
+- Added Discord slash command groups for VBOS status/help, modules, automations, operations, server inspection, member-role control and channel-control actions.
 - Added `/vbos help`, `/vbos commands`, `/vbos dashboard`, `/vbos invite`, `/vbos status`, `/vbos quickstart` and `/vbos audit`.
-- Added Discord-side module inspection and enable/disable through `/modules` with staff permission checks and audit trail.
-- Added Discord-side automation list/info/events/test commands for existing Automation Studio flows.
-- Added Discord-side Bot Operations shortcuts for templates, approvals, push history and safe console commands.
-- Added Discord-side server inspection, member role controls and guarded channel create/delete/topic/lock/unlock commands.
-- Added Command Center tests and registered all new commands in the guild command deployment flow.
+- Added Discord-side module inspection/toggle commands, automation inspection/test commands, Bot Operations shortcuts and guarded server/member/channel controls.
+- Added Command Center tests and registered the new command catalog in the guild command deployment flow.
 
 ## 7.34.0
 

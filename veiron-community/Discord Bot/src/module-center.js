@@ -34,6 +34,20 @@ export const MODULE_REGISTRY = Object.freeze([
     dependencies: []
   },
   {
+    id: "web-workspace",
+    name: "Web Workspace",
+    category: "core",
+    risk: "low",
+    minimumRole: "VIEWER",
+    defaultEnabled: true,
+    locked: true,
+    description: "Admin Web command palette, pinned routes, personal dashboard preferences and web activity history.",
+    routes: ["/admin/#web"],
+    endpoints: ["/api/web/*"],
+    permissions: [],
+    dependencies: []
+  },
+  {
     id: "operations",
     name: "Bot Operations Studio",
     category: "ops",

@@ -55,6 +55,7 @@
 - Automation Studio for no-code Discord runtime flows with safe triggers, allowlisted actions, dry-run testing, cooldowns, audit events and message/member runtime integration.
 - Module Center / Feature Marketplace for module registry, risk/status visibility, audited feature toggles and import/export bundles.
 - Command Center for full slash-command catalog, Discord-side staff shortcuts, module controls, automation inspection, server/member/channel controls and audited command operations.
+- Web Workspace for Admin Web command palette, sidebar filtering, pinned panels, quick actions, persisted per-admin preferences and role-aware navigation.
 
 ## Phase 1 - Community Operations
 

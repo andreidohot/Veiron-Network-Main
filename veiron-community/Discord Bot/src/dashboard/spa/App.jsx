@@ -21,7 +21,8 @@ import {
   SettingsPanel,
   TicketsPanel,
   TotpResult,
-  WalletPanel
+  WalletPanel,
+  WebWorkspacePanel
 } from "./components/Panels.jsx";
 import { createApiClient, persistAuth, publicApi, readStoredAuth } from "./lib/api.js";
 
@@ -34,6 +35,7 @@ const ROLE_WEIGHT = {
 
 const ROUTES = new Set([
   "overview",
+  "web",
   "commands",
   "control",
   "operations",
@@ -82,6 +84,7 @@ const ROADMAP_PANELS = {
 
 const EMPTY_DATA = {
   summary: {},
+  web: null,
   commandCenter: null,
   control: null,
   controlMembers: [],
@@ -102,7 +105,7 @@ const EMPTY_DATA = {
   blockchain: null,
   wallets: []
 };
-const DASHBOARD_CACHE_KEY = "vireon_admin_dashboard_cache";
+const DASHBOARD_CACHE_KEY = "vbos_admin_dashboard_cache";
 
 export function App() {
   const paymentToken = readPaymentToken();
@@ -237,6 +240,7 @@ function AdminApp({ initialStatus = "Login to load dashboard data." } = {}) {
     const canModerate = roleAtLeast(user.role, "MODERATOR");
     const baseRequests = [
       ["summary", apiClient.api("/api/dashboard/summary")],
+      ["web", apiClient.api("/api/web/overview")],
       ["control", apiClient.api("/api/control/overview")],
       ["guild", apiClient.api("/api/guild")],
       ["settings", apiClient.api("/api/settings")],
@@ -264,6 +268,7 @@ function AdminApp({ initialStatus = "Login to load dashboard data." } = {}) {
     const loaded = await loadSettled([...baseRequests, ...moderatorRequests]);
     setData({
       summary: loaded.summary ?? {},
+      web: loaded.web?.ok === false ? null : loaded.web ?? data.web ?? null,
       commandCenter: loaded.commands?.ok === false ? null : loaded.commands ?? data.commandCenter ?? null,
       control: loaded.control?.ok === false ? null : loaded.control ?? null,
       controlMembers: data.controlMembers ?? [],
@@ -286,6 +291,7 @@ function AdminApp({ initialStatus = "Login to load dashboard data." } = {}) {
     });
     writeCachedDashboard({
       summary: loaded.summary ?? {},
+      web: loaded.web?.ok === false ? null : loaded.web ?? data.web ?? null,
       commandCenter: loaded.commands?.ok === false ? null : loaded.commands ?? data.commandCenter ?? null,
       control: loaded.control?.ok === false ? null : loaded.control ?? null,
       controlMembers: data.controlMembers ?? [],
@@ -310,6 +316,24 @@ function AdminApp({ initialStatus = "Login to load dashboard data." } = {}) {
     await refreshPushState();
   }
 
+
+  async function refreshWebWorkspace(message = "Web Workspace refreshed.") {
+    const result = await apiClient.api("/api/web/overview");
+    const nextData = { ...data, web: result };
+    setData(nextData);
+    writeCachedDashboard(nextData);
+    setStatus(message);
+    return result;
+  }
+
+  async function saveWebWorkspacePreferences(preferences) {
+    const result = await apiClient.api("/api/web/preferences", {
+      method: "PATCH",
+      body: JSON.stringify(preferences)
+    });
+    await refreshWebWorkspace("Web preferences saved.");
+    return result;
+  }
 
   async function refreshCommandCenter(message = "Command Center refreshed.") {
     const result = await apiClient.api("/api/commands/overview");
@@ -774,11 +798,21 @@ function AdminApp({ initialStatus = "Login to load dashboard data." } = {}) {
       onRouteChange={changeRoute}
       auth={auth}
       status={status}
+      web={data.web}
       onLogin={(payload) => login(payload).catch((error) => setStatus(`Login failed: ${error.message}`))}
       onLogout={() => logout().catch((error) => setStatus(`Logout failed: ${error.message}`))}
     >
       <TotpResult result={totpResult} />
       {route === "overview" && <OverviewPanel summary={data.summary} />}
+      {route === "web" && (
+        <WebWorkspacePanel
+          web={data.web}
+          canView={Boolean(auth.user)}
+          onRefresh={() => refreshWebWorkspace().catch((error) => setStatus(`Web Workspace refresh failed: ${error.message}`))}
+          onSave={(preferences) => saveWebWorkspacePreferences(preferences).catch((error) => setStatus(`Web preferences failed: ${error.message}`))}
+          onNavigate={changeRoute}
+        />
+      )}
       {route === "commands" && (
         <CommandCenterPanel
           commandCenter={data.commandCenter}

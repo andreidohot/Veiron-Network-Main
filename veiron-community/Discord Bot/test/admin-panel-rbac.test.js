@@ -10,6 +10,8 @@ describe("admin panel route RBAC", () => {
       "POST /auth/totp/confirm": "VIEWER",
       "POST /auth/totp/disable": "VIEWER",
       "GET /api/dashboard/summary": "VIEWER",
+      "GET /api/web/overview": "VIEWER",
+      "PATCH /api/web/preferences": "VIEWER",
       "GET /api/guild": "VIEWER",
       "GET /api/control/overview": "VIEWER",
       "GET /api/control/members": "MODERATOR",

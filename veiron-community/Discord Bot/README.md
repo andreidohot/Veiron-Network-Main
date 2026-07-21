@@ -2,7 +2,7 @@
 
 VBOS (Vireon Bot Operations Studio) is the all-in-one Discord operations bot and admin web panel for Vireon Network.
 
-Current version: **7.35.0**.
+Current version: **7.36.0**.
 
 The goal is one strong operations system, not many disconnected bots. This release includes server setup, onboarding roles, permission control with visual admin UI, VBOS-styled embeds, moderation, tickets, live-config automod, anti-raid alerts, anti-spam, persistent audit logging, automated database backups, announcements, scheduled announcements, proposals/voting, welcome/goodbye events, XP/level tracking, server-only Shards social currency, custom tags, custom triggers, Lavalink music commands, saved playlists, audio filters, interactive now-playing controls, live Vireon chain status and reward queries via the configured adapter, Docker deployment and an installable React SPA admin dashboard.
 
@@ -596,6 +596,20 @@ curl -X POST http://127.0.0.1:8787/api/embeds/send \
   -H "Content-Type: application/json" \
   -d '{"channelId":"123","title":"Vireon Update","description":"Draft update text.","color":"#d4af37"}'
 ```
+
+
+## Admin Web Workspace
+
+VBOS Admin Web now includes a web-first workspace at `/admin/#web`. It stores each admin user's preferences in the shared database, including default route, pinned panels, favorite quick actions, UI density, compact mode and reduced motion. The shell also includes a command palette opened with `Ctrl+K` / `Cmd+K`, sidebar filtering and role-aware disabled routes, so moderators and admins can move quickly without touching `.env` or using shell access.
+
+Protected web endpoints:
+
+```text
+GET   /api/web/overview
+PATCH /api/web/preferences
+```
+
+The command palette is navigation/action based only. It does not execute shell commands, JavaScript eval or destructive Discord actions directly.
 
 ## Commands
 

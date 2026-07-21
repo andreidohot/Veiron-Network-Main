@@ -28,6 +28,164 @@ export function OverviewPanel({ summary }) {
 }
 
 
+export function WebWorkspacePanel({ web, canView, onRefresh, onSave, onNavigate }) {
+  const preferences = web?.preferences ?? {};
+  const [selectedRoutes, setSelectedRoutes] = useState(preferences.pinnedRoutes ?? []);
+  const [selectedActions, setSelectedActions] = useState(preferences.favoriteActions ?? []);
+  const [defaultRoute, setDefaultRoute] = useState(preferences.defaultRoute ?? "overview");
+  const [density, setDensity] = useState(preferences.density ?? "comfortable");
+  const [compactMode, setCompactMode] = useState(Boolean(preferences.compactMode));
+  const [reduceMotion, setReduceMotion] = useState(Boolean(preferences.reduceMotion));
+  const [showOptionalModules, setShowOptionalModules] = useState(Boolean(preferences.showOptionalModules));
+  const [commandPaletteEnabled, setCommandPaletteEnabled] = useState(preferences.commandPaletteEnabled !== false);
+  const routes = web?.routes ?? [];
+  const quickActions = web?.quickActions ?? [];
+  const pinnedRoutes = web?.pinnedRoutes ?? [];
+  const favoriteActions = web?.favoriteActions ?? [];
+  const recentAudit = web?.recentAudit ?? [];
+  const recentEvents = web?.recentWebEvents ?? [];
+
+  function toggleValue(list, value, limit = 12) {
+    if (list.includes(value)) return list.filter((item) => item !== value);
+    return [...list, value].slice(0, limit);
+  }
+
+  async function handleSave(event) {
+    event.preventDefault();
+    await onSave({
+      defaultRoute,
+      pinnedRoutes: selectedRoutes,
+      favoriteActions: selectedActions,
+      compactMode,
+      reduceMotion,
+      showOptionalModules,
+      commandPaletteEnabled,
+      density
+    });
+  }
+
+  return (
+    <section className="view active web-workspace-view">
+      <div className="control-hero module-hero">
+        <div>
+          <span className="eyebrow">Web Workspace</span>
+          <h2>VBOS Web Control Room</h2>
+          <p>Personalizeaza Admin Web pentru staff: rute pinned, quick actions, command palette, densitate UI si scurtaturi de lucru. Preferintele sunt salvate in DB, nu doar local.</p>
+        </div>
+        <div className="button-row">
+          <button type="button" onClick={onRefresh} disabled={!canView}>Refresh</button>
+          <button type="button" onClick={() => onNavigate(defaultRoute)} disabled={!canView}>Open default</button>
+        </div>
+      </div>
+      {!canView && <PermissionNote minimumRole="VIEWER" />}
+      {canView && (
+        <>
+          <div className="stats">
+            <div className="stat"><strong>{web?.stats?.availableRoutes ?? 0}/{web?.stats?.routes ?? 0}</strong><span>Available panels</span></div>
+            <div className="stat"><strong>{web?.stats?.pinnedRoutes ?? 0}</strong><span>Pinned panels</span></div>
+            <div className="stat"><strong>{web?.stats?.favoriteActions ?? 0}</strong><span>Favorite actions</span></div>
+            <div className="stat"><strong>{web?.bot?.pingMs ?? "n/a"}</strong><span>Bot ping ms</span></div>
+            <div className="stat"><strong>{web?.stats?.auditEvents ?? 0}</strong><span>Audit tail</span></div>
+            <div className="stat"><strong>{web?.stats?.webEvents ?? 0}</strong><span>Web events</span></div>
+          </div>
+
+          <div className="module-bundle-grid web-workspace-grid">
+            <section className="card module-bundle-output">
+              <h3>Pinned control panels</h3>
+              <div className="quick-grid">
+                {(pinnedRoutes.length ? pinnedRoutes : routes.filter((item) => item.available).slice(0, 6)).map((item) => (
+                  <button className="quick-card" type="button" key={item.id} onClick={() => onNavigate(item.id)}>
+                    <strong>{item.label}</strong>
+                    <span>{item.description}</span>
+                    <small>{item.group} | {item.minimumRole}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="card module-bundle-output">
+              <h3>Favorite quick actions</h3>
+              <div className="quick-grid">
+                {(favoriteActions.length ? favoriteActions : quickActions.filter((item) => item.available).slice(0, 6)).map((item) => (
+                  <button className="quick-card" type="button" key={item.id} onClick={() => onNavigate(item.route)}>
+                    <strong>{item.label}</strong>
+                    <span>{item.description}</span>
+                    <small>{item.group} | {item.minimumRole}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <form className="panel-mini form-grid workspace-preferences" onSubmit={handleSave}>
+            <h3>Workspace preferences</h3>
+            <label>Default route</label>
+            <select value={defaultRoute} onChange={(event) => setDefaultRoute(event.target.value)}>
+              {routes.filter((item) => item.available).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
+            <label>Density</label>
+            <select value={density} onChange={(event) => setDensity(event.target.value)}>
+              <option value="compact">Compact</option>
+              <option value="comfortable">Comfortable</option>
+              <option value="spacious">Spacious</option>
+            </select>
+            <label className="checkbox-row"><input type="checkbox" checked={compactMode} onChange={(event) => setCompactMode(event.target.checked)} /><span>Compact mode</span></label>
+            <label className="checkbox-row"><input type="checkbox" checked={reduceMotion} onChange={(event) => setReduceMotion(event.target.checked)} /><span>Reduce motion</span></label>
+            <label className="checkbox-row"><input type="checkbox" checked={showOptionalModules} onChange={(event) => setShowOptionalModules(event.target.checked)} /><span>Show optional blockchain/wallet panels in personal workspace</span></label>
+            <label className="checkbox-row"><input type="checkbox" checked={commandPaletteEnabled} onChange={(event) => setCommandPaletteEnabled(event.target.checked)} /><span>Enable command palette shortcut</span></label>
+            <button type="submit">Save web workspace</button>
+          </form>
+
+          <div className="module-bundle-grid web-selector-grid">
+            <section className="card module-bundle-output">
+              <h3>Choose pinned panels</h3>
+              <div className="chip-select-grid">
+                {routes.filter((item) => item.available && (showOptionalModules || item.group !== "optional")).map((item) => (
+                  <button
+                    type="button"
+                    className={selectedRoutes.includes(item.id) ? "chip-selected" : ""}
+                    key={item.id}
+                    onClick={() => setSelectedRoutes((current) => toggleValue(current, item.id))}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="card module-bundle-output">
+              <h3>Choose favorite actions</h3>
+              <div className="chip-select-grid">
+                {quickActions.filter((item) => item.available).map((item) => (
+                  <button
+                    type="button"
+                    className={selectedActions.includes(item.id) ? "chip-selected" : ""}
+                    key={item.id}
+                    onClick={() => setSelectedActions((current) => toggleValue(current, item.id))}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <div className="module-bundle-grid">
+            <section className="card module-bundle-output">
+              <h3>Recent web activity</h3>
+              <DataList items={recentEvents} format={(item) => `${item.type ?? "web"} | ${item.title ?? "Event"} | ${formatDateTime(item.createdAt)}`} />
+            </section>
+            <section className="card module-bundle-output">
+              <h3>Audit tail</h3>
+              <DataList items={recentAudit} format={(item) => `${item.type ?? "audit"} | ${item.title ?? "Event"} | ${formatDateTime(item.createdAt)}`} />
+            </section>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+
 export function BotOperationsPanel({
   operations,
   channels = [],

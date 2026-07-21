@@ -9,7 +9,7 @@ MAJOR.MEDIUM.MINOR
 Current version:
 
 ```text
-7.35.0
+7.36.0
 ```
 
 ## Version Meaning
@@ -23,7 +23,7 @@ Current version:
 ## Rules
 
 - Do not use old incremental archive labels.
-- Use release filenames like `vbos-7.35.0.zip`.
+- Use release filenames like `vbos-7.36.0.zip`.
 - If `MAJOR` increases, reset `MEDIUM` and `MINOR` to `0`.
 - If `MEDIUM` increases, reset `MINOR` to `0`.
 - If only fixes or small refinements are made, increase only `MINOR`.
