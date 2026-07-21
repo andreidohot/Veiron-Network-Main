@@ -52,6 +52,7 @@ assert 'VIREON_COMPONENT: mining-rpc' in main
 assert 'profiles: [pool]' in main
 assert 'RPC_ACCESS_MODE: private-mining' in main
 assert 'RPC_EXPOSE_MINING: "false"' in main
+assert 'working_dir: /app' in main
 assert 'ports:' not in main.split('  vireon-mining-rpc:', 1)[1].split('  vireon-indexer:', 1)[0]
 proxy=(root/'docker/caddy/Caddyfile.template').read_text()
 assert 'handle_path /pool/*' in proxy

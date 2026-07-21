@@ -139,7 +139,7 @@ services:
       dockerfile: docker/ops/Dockerfile
     container_name: vireon-docker-broker
     restart: unless-stopped
-    working_dir: ${VIREON_HOST_WORKSPACE}
+    working_dir: /app
     networks: [vireon-internal]
     env_file: [.env]
     environment:
