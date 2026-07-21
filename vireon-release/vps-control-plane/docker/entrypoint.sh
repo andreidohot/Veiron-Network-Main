@@ -13,7 +13,7 @@ export CONTROLLER_URL_TOML='""'; [[ -n "${CONTROLLER_URL:-}" ]] && CONTROLLER_UR
 case "$component" in
  node)
   render /app/templates/node.toml.template "$config_dir/node.toml"
-  if [[ ! -s "$chain_dir/chain.jsonl" ]]; then
+  if [[ ! -s "$chain_dir/chain.sqlite3" && ! -s "$chain_dir/chain.jsonl" ]]; then
     vireon-node --config "$config_dir/node.toml" --data-dir "$chain_dir" \
       import-genesis-block \
       --genesis-file /app/docs/release/genesis.mainnet-candidate.block.json

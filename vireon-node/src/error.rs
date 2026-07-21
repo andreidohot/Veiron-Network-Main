@@ -9,6 +9,8 @@ pub enum NodeError {
     Json(#[from] serde_json::Error),
     #[error("TOML error: {0}")]
     Toml(#[from] toml::de::Error),
+    #[error("SQLite storage error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
     #[error("core validation error: {0}")]
     Core(#[from] vireon_core::VireonError),
     #[error("network config mismatch: {0}")]
@@ -23,6 +25,8 @@ pub enum NodeError {
         line: usize,
         message: String,
     },
+    #[error("invalid chain database at {path}: {message}")]
+    InvalidChainDatabase { path: PathBuf, message: String },
     #[error("invalid mempool file at {path}: {message}")]
     InvalidMempoolFile { path: PathBuf, message: String },
     #[error("mempool is full: limit {limit} pending transactions reached")]

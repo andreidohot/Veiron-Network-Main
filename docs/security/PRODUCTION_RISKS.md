@@ -4,9 +4,15 @@ Status: Mainnet Candidate risk register / not public Mainnet
 
 ## Consensus and storage
 
-- JSONL chain and JSON snapshot storage are candidate mechanisms, not a final
-  production database and migration design.
-- Fork choice/reorganization exists, but deep durable branch storage,
+- Canonical node storage uses accepted transactional SQLite with WAL,
+  `synchronous=FULL`, versioned strict schema, integrity checks, online backup,
+  and preserved JSONL migration input. Independent restore, disk-failure, and
+  long-running multi-process soak evidence is still required.
+- Node databases must remain on local filesystems; network filesystems with
+  unreliable locking or sync semantics are unsupported.
+- Indexer and pool JSON snapshots are not final production storage.
+- Fork choice/reorganization exists and detached blocks are archived, but deep
+  durable pre-adoption branch storage,
   header-first synchronization, resume, and multi-host adversarial soak remain.
 - Stable block/transaction serialization and independent genesis verification
   are incomplete.

@@ -1,13 +1,37 @@
 use crate::error::{NodeError, NodeResult};
-use atomic_write_file::AtomicWriteFile;
 use fs2::FileExt;
+use rusqlite::{
+    params, Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, MAIN_DB,
+};
+use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use vireon_core::{hash_to_hex, Block};
 
-pub const CHAIN_FILE_NAME: &str = "chain.jsonl";
+pub const CHAIN_DATABASE_FILE_NAME: &str = "chain.sqlite3";
+pub const LEGACY_CHAIN_FILE_NAME: &str = "chain.jsonl";
+/// Compatibility alias for callers that only need the canonical storage path.
+pub const CHAIN_FILE_NAME: &str = CHAIN_DATABASE_FILE_NAME;
 pub const CHAIN_LOCK_FILE_NAME: &str = "chain.lock";
+
+const STORAGE_SCHEMA_VERSION: i64 = 1;
+const STORAGE_APPLICATION_ID: i64 = 0x5649_5245; // "VIRE"
+const MINIMUM_SAFE_SQLITE_VERSION: i32 = 3_051_003;
+const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FileFingerprint {
+    pub len: u64,
+    pub modified_millis: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ChainStorageFingerprint {
+    pub database: FileFingerprint,
+    pub wal: FileFingerprint,
+}
 
 pub trait BlockStore {
     fn load_blocks(&self) -> NodeResult<Vec<Block>>;
@@ -27,11 +51,11 @@ pub trait BlockStore {
 }
 
 #[derive(Clone, Debug)]
-pub struct JsonlBlockStore {
+pub struct SqliteBlockStore {
     data_dir: PathBuf,
 }
 
-impl JsonlBlockStore {
+impl SqliteBlockStore {
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
         Self {
             data_dir: data_dir.into(),
@@ -58,110 +82,130 @@ impl JsonlBlockStore {
         Ok(lock_file)
     }
 
-    fn write_blocks_atomically(&self, blocks: &[Block]) -> NodeResult<()> {
-        let chain_path = chain_file_path(&self.data_dir);
-        let mut file = AtomicWriteFile::open(&chain_path)?;
-        for block in blocks {
-            serde_json::to_writer(&mut file, block)?;
-            file.write_all(b"\n")?;
-        }
-        file.sync_all()?;
-        file.commit()?;
-        Ok(())
-    }
-
-    /// Append a single validated tip-extension line without rewriting the whole chain.
-    /// Used for direct tip growth (mining / direct P2P extension). Reorgs still use
-    /// [`write_blocks_atomically`].
-    fn append_block_line(&self, block: &Block) -> NodeResult<()> {
+    fn prepare_database(&self, create_if_missing: bool) -> NodeResult<()> {
         ensure_data_dir(&self.data_dir)?;
-        let chain_path = chain_file_path(&self.data_dir);
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&chain_path)?;
-        serde_json::to_writer(&mut file, block)?;
-        file.write_all(b"\n")?;
-        file.sync_all()?;
+        let database_path = chain_database_path(&self.data_dir);
+        if database_path.exists() {
+            return Ok(());
+        }
+
+        let _lock = self.open_exclusive_lock()?;
+        if database_path.exists() {
+            return Ok(());
+        }
+
+        let legacy_path = legacy_chain_file_path(&self.data_dir);
+        let legacy_blocks = if legacy_path.exists() {
+            Some(load_legacy_blocks_from_path(&legacy_path)?)
+        } else {
+            None
+        };
+        if legacy_blocks.is_none() && !create_if_missing {
+            return Err(NodeError::ChainNotInitialized(database_path));
+        }
+
+        let temporary_path = self.data_dir.join(format!(
+            ".{CHAIN_DATABASE_FILE_NAME}.migrating-{}",
+            std::process::id()
+        ));
+        if temporary_path.exists() {
+            fs::remove_file(&temporary_path)?;
+        }
+
+        let create_result = (|| -> NodeResult<()> {
+            let mut connection = Connection::open(&temporary_path)?;
+            configure_connection(&connection, false)?;
+            initialize_schema(&connection)?;
+            if let Some(blocks) = legacy_blocks.as_deref() {
+                let transaction =
+                    connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                for block in blocks {
+                    insert_canonical_block(&transaction, block)?;
+                }
+                set_metadata(&transaction, "migration_source", LEGACY_CHAIN_FILE_NAME)?;
+                set_metadata(
+                    &transaction,
+                    "migration_completed_unix_seconds",
+                    &unix_seconds().to_string(),
+                )?;
+                transaction.commit()?;
+            }
+            verify_database_integrity_connection(&connection, &temporary_path)?;
+            connection.pragma_update(None, "journal_mode", "WAL")?;
+            connection.pragma_update(None, "synchronous", "FULL")?;
+            drop(connection);
+            fs::rename(&temporary_path, &database_path)?;
+            sync_parent_directory(&self.data_dir)?;
+            Ok(())
+        })();
+
+        if create_result.is_err() && temporary_path.exists() {
+            let _ = fs::remove_file(&temporary_path);
+        }
+        create_result
+    }
+
+    fn open_read_connection(&self) -> NodeResult<Connection> {
+        self.prepare_database(false)?;
+        let connection = Connection::open_with_flags(
+            chain_database_path(&self.data_dir),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        configure_read_connection(&connection)?;
+        validate_schema(&connection, &chain_database_path(&self.data_dir))?;
+        Ok(connection)
+    }
+
+    fn open_write_connection(&self) -> NodeResult<Connection> {
+        self.prepare_database(true)?;
+        let connection = Connection::open_with_flags(
+            chain_database_path(&self.data_dir),
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        configure_connection(&connection, true)?;
+        validate_schema(&connection, &chain_database_path(&self.data_dir))?;
+        Ok(connection)
+    }
+
+    fn append_with_tip_link(&self, block: &Block) -> NodeResult<()> {
+        let mut connection = self.open_write_connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let blocks =
+            load_blocks_from_connection(&transaction, &chain_database_path(&self.data_dir), true)?;
+        verify_tip_extension(&blocks, block)?;
+        insert_canonical_block(&transaction, block)?;
+        transaction.commit()?;
         Ok(())
     }
 
-    /// Append only when previous_hash links to current tip (or chain is empty).
-    /// Does not run full consensus validation — use `append_validated` for that.
-    fn append_with_tip_link(&self, block: &Block) -> NodeResult<()> {
-        let _lock = self.open_exclusive_lock()?;
-        let blocks = match self.load_blocks() {
-            Ok(blocks) => blocks,
-            Err(NodeError::ChainNotInitialized(_)) => Vec::new(),
-            Err(error) => return Err(error),
-        };
-        if let Some(tip) = blocks.last() {
-            let expected_tip = hash_to_hex(&tip.hash());
-            let actual_previous = hash_to_hex(&block.header.previous_hash);
-            if expected_tip != actual_previous {
-                return Err(NodeError::StaleChainTip {
-                    expected: expected_tip,
-                    actual: actual_previous,
-                });
-            }
-            let expected_height = tip.header.height.saturating_add(1);
-            if block.header.height != expected_height {
-                return Err(NodeError::Input(format!(
-                    "block height {} does not extend tip height {} (expected {})",
-                    block.header.height, tip.header.height, expected_height
-                )));
-            }
-        } else if block.header.height != 0 {
-            return Err(NodeError::Input(format!(
-                "first chain block must be height 0, got {}",
-                block.header.height
-            )));
-        }
-        // Genesis / tip extension: O(1) line append + fsync (not full rewrite).
-        self.append_block_line(block)
-    }
-
-    /// Test/bootstrap footgun: write without tip link check (audit A-H04).
+    /// Test/bootstrap helper that deliberately skips structural checks.
     fn append_unchecked(&self, block: &Block) -> NodeResult<()> {
-        let _lock = self.open_exclusive_lock()?;
-        // Still use line append so fixture chains scale; callers intentionally skip validation.
-        self.append_block_line(block)
+        let mut connection = self.open_write_connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        insert_canonical_block(&transaction, block)?;
+        transaction.commit()?;
+        Ok(())
     }
 }
 
-impl BlockStore for JsonlBlockStore {
+impl BlockStore for SqliteBlockStore {
     fn load_blocks(&self) -> NodeResult<Vec<Block>> {
-        load_blocks_from_path(&chain_file_path(&self.data_dir))
+        let connection = self.open_read_connection()?;
+        load_blocks_from_connection(&connection, &chain_database_path(&self.data_dir), false)
     }
 
     fn append_validated<R, F>(&self, candidate: &Block, validate: F) -> NodeResult<R>
     where
         F: FnOnce(&[Block], &Block) -> NodeResult<R>,
     {
-        let _lock = self.open_exclusive_lock()?;
-        let blocks = self.load_blocks()?;
+        let mut connection = self.open_write_connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let blocks =
+            load_blocks_from_connection(&transaction, &chain_database_path(&self.data_dir), false)?;
         let result = validate(&blocks, candidate)?;
-
-        let expected_tip = blocks.last().map(|block| hash_to_hex(&block.hash()));
-        let actual_previous = hash_to_hex(&candidate.header.previous_hash);
-        if expected_tip.as_deref() != Some(actual_previous.as_str()) {
-            return Err(NodeError::StaleChainTip {
-                expected: expected_tip.unwrap_or_else(|| "none".to_owned()),
-                actual: actual_previous,
-            });
-        }
-        if let Some(tip) = blocks.last() {
-            let expected_height = tip.header.height.saturating_add(1);
-            if candidate.header.height != expected_height {
-                return Err(NodeError::Input(format!(
-                    "block height {} does not extend tip height {} (expected {})",
-                    candidate.header.height, tip.header.height, expected_height
-                )));
-            }
-        }
-
-        // Tip extension: O(block) append, not O(chain) rewrite (maturity TM-301 step).
-        self.append_block_line(candidate)?;
+        verify_tip_extension(&blocks, candidate)?;
+        insert_canonical_block(&transaction, candidate)?;
+        transaction.commit()?;
         Ok(result)
     }
 
@@ -174,8 +218,10 @@ impl BlockStore for JsonlBlockStore {
     where
         F: FnOnce(&[Block], &[Block]) -> NodeResult<R>,
     {
-        let _lock = self.open_exclusive_lock()?;
-        let current = self.load_blocks()?;
+        let mut connection = self.open_write_connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let current =
+            load_blocks_from_connection(&transaction, &chain_database_path(&self.data_dir), false)?;
         let actual_tip = current
             .last()
             .map(|block| hash_to_hex(&block.hash()))
@@ -188,14 +234,328 @@ impl BlockStore for JsonlBlockStore {
         }
 
         let result = validate(&current, candidate)?;
-        // Reorg / rewind must rewrite the full file atomically.
-        self.write_blocks_atomically(candidate)?;
+        replace_canonical_chain(&transaction, &current, candidate, expected_tip)?;
+        transaction.commit()?;
         Ok(result)
     }
 }
 
+fn verify_tip_extension(blocks: &[Block], block: &Block) -> NodeResult<()> {
+    if let Some(tip) = blocks.last() {
+        let expected_tip = hash_to_hex(&tip.hash());
+        let actual_previous = hash_to_hex(&block.header.previous_hash);
+        if expected_tip != actual_previous {
+            return Err(NodeError::StaleChainTip {
+                expected: expected_tip,
+                actual: actual_previous,
+            });
+        }
+        let expected_height = tip.header.height.saturating_add(1);
+        if block.header.height != expected_height {
+            return Err(NodeError::Input(format!(
+                "block height {} does not extend tip height {} (expected {})",
+                block.header.height, tip.header.height, expected_height
+            )));
+        }
+    } else if block.header.height != 0 {
+        return Err(NodeError::Input(format!(
+            "first chain block must be height 0, got {}",
+            block.header.height
+        )));
+    }
+    Ok(())
+}
+
+fn replace_canonical_chain(
+    transaction: &Transaction<'_>,
+    current: &[Block],
+    candidate: &[Block],
+    source_tip_hash: &str,
+) -> NodeResult<()> {
+    let candidate_hashes: BTreeSet<[u8; 32]> = candidate
+        .iter()
+        .map(|block| *block.hash().as_bytes())
+        .collect();
+    for block in current {
+        if !candidate_hashes.contains(block.hash().as_bytes()) {
+            insert_orphaned_block(transaction, block, source_tip_hash)?;
+        }
+    }
+
+    transaction.execute("DELETE FROM canonical_blocks", [])?;
+    for block in candidate {
+        insert_canonical_block(transaction, block)?;
+    }
+    Ok(())
+}
+
+fn insert_canonical_block(connection: &Connection, block: &Block) -> NodeResult<()> {
+    let height = height_to_i64(block.header.height)?;
+    let hash = block.hash();
+    let block_json = serde_json::to_vec(block)?;
+    connection.execute(
+        "INSERT INTO canonical_blocks
+         (height, hash, previous_hash, network_id, block_json)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            height,
+            hash.as_bytes().as_slice(),
+            block.header.previous_hash.as_bytes().as_slice(),
+            block.header.network_id,
+            block_json
+        ],
+    )?;
+    Ok(())
+}
+
+fn insert_orphaned_block(
+    connection: &Connection,
+    block: &Block,
+    source_tip_hash: &str,
+) -> NodeResult<()> {
+    let height = height_to_i64(block.header.height)?;
+    let hash = block.hash();
+    let block_json = serde_json::to_vec(block)?;
+    connection.execute(
+        "INSERT INTO orphaned_blocks
+         (hash, height, previous_hash, network_id, block_json, detached_at_unix_seconds, source_tip_hash)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(hash) DO UPDATE SET
+           detached_at_unix_seconds = excluded.detached_at_unix_seconds,
+           source_tip_hash = excluded.source_tip_hash",
+        params![
+            hash.as_bytes().as_slice(),
+            height,
+            block.header.previous_hash.as_bytes().as_slice(),
+            block.header.network_id,
+            block_json,
+            unix_seconds() as i64,
+            source_tip_hash
+        ],
+    )?;
+    Ok(())
+}
+
+fn load_blocks_from_connection(
+    connection: &Connection,
+    database_path: &Path,
+    allow_empty: bool,
+) -> NodeResult<Vec<Block>> {
+    let mut statement = connection.prepare(
+        "SELECT height, hash, previous_hash, network_id, block_json
+         FROM canonical_blocks ORDER BY height ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, Vec<u8>>(1)?,
+            row.get::<_, Vec<u8>>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, Vec<u8>>(4)?,
+        ))
+    })?;
+
+    let mut blocks = Vec::new();
+    for row in rows {
+        let (height, stored_hash, stored_previous, stored_network, block_json) = row?;
+        let block: Block = serde_json::from_slice(&block_json).map_err(|error| {
+            invalid_database(
+                database_path,
+                format!("cannot decode block at height {height}: {error}"),
+            )
+        })?;
+        let block_height = height_to_i64(block.header.height)?;
+        if block_height != height
+            || stored_hash.as_slice() != block.hash().as_bytes()
+            || stored_previous.as_slice() != block.header.previous_hash.as_bytes()
+            || stored_network != block.header.network_id
+        {
+            return Err(invalid_database(
+                database_path,
+                format!("stored columns do not match serialized block at height {height}"),
+            ));
+        }
+        blocks.push(block);
+    }
+
+    if blocks.is_empty() && !allow_empty {
+        return Err(NodeError::ChainNotInitialized(database_path.to_path_buf()));
+    }
+    verify_chain_structure(database_path, &blocks)?;
+    Ok(blocks)
+}
+
+fn configure_read_connection(connection: &Connection) -> NodeResult<()> {
+    verify_sqlite_runtime()?;
+    connection.busy_timeout(SQLITE_BUSY_TIMEOUT)?;
+    connection.pragma_update(None, "query_only", true)?;
+    connection.pragma_update(None, "trusted_schema", false)?;
+    Ok(())
+}
+
+fn configure_connection(connection: &Connection, enable_wal: bool) -> NodeResult<()> {
+    verify_sqlite_runtime()?;
+    connection.busy_timeout(SQLITE_BUSY_TIMEOUT)?;
+    if enable_wal {
+        connection.pragma_update(None, "journal_mode", "WAL")?;
+    } else {
+        connection.pragma_update(None, "journal_mode", "DELETE")?;
+    }
+    connection.pragma_update(None, "synchronous", "FULL")?;
+    connection.pragma_update(None, "foreign_keys", true)?;
+    connection.pragma_update(None, "trusted_schema", false)?;
+    connection.pragma_update(None, "wal_autocheckpoint", 1_000_i64)?;
+    Ok(())
+}
+
+fn verify_sqlite_runtime() -> NodeResult<()> {
+    let version = rusqlite::version_number();
+    if version < MINIMUM_SAFE_SQLITE_VERSION {
+        return Err(NodeError::Input(format!(
+            "SQLite {} is below required safe version 3.51.3",
+            rusqlite::version()
+        )));
+    }
+    Ok(())
+}
+
+fn initialize_schema(connection: &Connection) -> NodeResult<()> {
+    connection.execute_batch(
+        "BEGIN IMMEDIATE;
+         CREATE TABLE storage_metadata (
+           key TEXT PRIMARY KEY NOT NULL,
+           value TEXT NOT NULL
+         ) STRICT;
+         CREATE TABLE canonical_blocks (
+           height INTEGER PRIMARY KEY NOT NULL CHECK(height >= 0),
+           hash BLOB NOT NULL UNIQUE CHECK(length(hash) = 32),
+           previous_hash BLOB NOT NULL CHECK(length(previous_hash) = 32),
+           network_id TEXT NOT NULL,
+           block_json BLOB NOT NULL CHECK(length(block_json) > 0)
+         ) STRICT;
+         CREATE TABLE orphaned_blocks (
+           hash BLOB PRIMARY KEY NOT NULL CHECK(length(hash) = 32),
+           height INTEGER NOT NULL CHECK(height >= 0),
+           previous_hash BLOB NOT NULL CHECK(length(previous_hash) = 32),
+           network_id TEXT NOT NULL,
+           block_json BLOB NOT NULL CHECK(length(block_json) > 0),
+           detached_at_unix_seconds INTEGER NOT NULL,
+           source_tip_hash TEXT NOT NULL
+         ) STRICT;
+         CREATE INDEX orphaned_blocks_height_idx ON orphaned_blocks(height);
+         PRAGMA application_id = 1447645765;
+         PRAGMA user_version = 1;
+         INSERT INTO storage_metadata(key, value) VALUES ('schema_version', '1');
+         INSERT INTO storage_metadata(key, value) VALUES ('backend', 'sqlite');
+         COMMIT;",
+    )?;
+    validate_schema(connection, Path::new(CHAIN_DATABASE_FILE_NAME))
+}
+
+fn validate_schema(connection: &Connection, database_path: &Path) -> NodeResult<()> {
+    let application_id: i64 =
+        connection.pragma_query_value(None, "application_id", |row| row.get(0))?;
+    let user_version: i64 =
+        connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let metadata_version: Option<String> = connection
+        .query_row(
+            "SELECT value FROM storage_metadata WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if application_id != STORAGE_APPLICATION_ID
+        || user_version != STORAGE_SCHEMA_VERSION
+        || metadata_version.as_deref() != Some("1")
+    {
+        return Err(invalid_database(
+            database_path,
+            format!(
+                "unsupported schema identity: application_id={application_id}, user_version={user_version}, metadata_version={metadata_version:?}"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn set_metadata(connection: &Connection, key: &str, value: &str) -> NodeResult<()> {
+    connection.execute(
+        "INSERT INTO storage_metadata(key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+fn height_to_i64(height: u64) -> NodeResult<i64> {
+    i64::try_from(height)
+        .map_err(|_| NodeError::Input(format!("block height {height} exceeds SQLite range")))
+}
+
+fn invalid_database(path: &Path, message: String) -> NodeError {
+    NodeError::InvalidChainDatabase {
+        path: path.to_path_buf(),
+        message,
+    }
+}
+
+fn unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs())
+}
+
+fn file_fingerprint(path: &Path) -> FileFingerprint {
+    fs::metadata(path).map_or_else(
+        |_| FileFingerprint::default(),
+        |metadata| FileFingerprint {
+            len: metadata.len(),
+            modified_millis: metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+                .unwrap_or(0),
+        },
+    )
+}
+
+fn sync_parent_directory(path: &Path) -> NodeResult<()> {
+    #[cfg(unix)]
+    {
+        File::open(path)?.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
+pub fn chain_database_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(CHAIN_DATABASE_FILE_NAME)
+}
+
+/// Compatibility accessor. New callers should use [`chain_database_path`].
 pub fn chain_file_path(data_dir: &Path) -> PathBuf {
-    data_dir.join(CHAIN_FILE_NAME)
+    chain_database_path(data_dir)
+}
+
+pub fn legacy_chain_file_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(LEGACY_CHAIN_FILE_NAME)
+}
+
+pub fn chain_storage_fingerprint(data_dir: &Path) -> ChainStorageFingerprint {
+    let database_path = chain_database_path(data_dir);
+    let mut wal_path = database_path.as_os_str().to_os_string();
+    wal_path.push("-wal");
+    let wal_path = PathBuf::from(wal_path);
+    ChainStorageFingerprint {
+        database: file_fingerprint(&database_path),
+        wal: file_fingerprint(&wal_path),
+    }
+}
+
+pub fn chain_storage_exists(data_dir: &Path) -> bool {
+    chain_database_path(data_dir).exists() || legacy_chain_file_path(data_dir).exists()
 }
 
 pub fn ensure_data_dir(data_dir: &Path) -> NodeResult<()> {
@@ -203,26 +563,59 @@ pub fn ensure_data_dir(data_dir: &Path) -> NodeResult<()> {
     Ok(())
 }
 
-/// Append a block after tip-link check (previous_hash must match tip when chain is non-empty).
 pub fn append_block(data_dir: &Path, block: &Block) -> NodeResult<()> {
-    JsonlBlockStore::new(data_dir).append_with_tip_link(block)
+    SqliteBlockStore::new(data_dir).append_with_tip_link(block)
 }
 
-/// Unchecked append for intentional invalid-chain fixtures in tests only (audit A-H04).
-/// Production paths must use [`append_block`] or [`BlockStore::append_validated`].
+/// Unchecked append for intentional invalid-chain fixtures in tests only.
 pub fn append_block_unchecked(data_dir: &Path, block: &Block) -> NodeResult<()> {
-    JsonlBlockStore::new(data_dir).append_unchecked(block)
+    SqliteBlockStore::new(data_dir).append_unchecked(block)
 }
 
 pub fn load_blocks(data_dir: &Path) -> NodeResult<Vec<Block>> {
-    JsonlBlockStore::new(data_dir).load_blocks()
+    SqliteBlockStore::new(data_dir).load_blocks()
 }
 
-fn load_blocks_from_path(chain_path: &Path) -> NodeResult<Vec<Block>> {
-    if !chain_path.exists() {
-        return Err(NodeError::ChainNotInitialized(chain_path.to_path_buf()));
+pub fn backup_chain_database(data_dir: &Path, destination: &Path) -> NodeResult<()> {
+    let store = SqliteBlockStore::new(data_dir);
+    let source = store.open_read_connection()?;
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)?;
     }
+    if destination.exists() {
+        return Err(NodeError::Input(format!(
+            "backup destination already exists: {}",
+            destination.display()
+        )));
+    }
+    source.backup(MAIN_DB, destination, None)?;
+    let backup = Connection::open_with_flags(destination, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    validate_schema(&backup, destination)?;
+    verify_database_integrity_connection(&backup, destination)?;
+    Ok(())
+}
 
+pub fn verify_database_integrity(data_dir: &Path) -> NodeResult<()> {
+    let store = SqliteBlockStore::new(data_dir);
+    let connection = store.open_read_connection()?;
+    verify_database_integrity_connection(&connection, &chain_database_path(data_dir))
+}
+
+fn verify_database_integrity_connection(
+    connection: &Connection,
+    database_path: &Path,
+) -> NodeResult<()> {
+    let result: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+    if result != "ok" {
+        return Err(invalid_database(
+            database_path,
+            format!("SQLite integrity_check failed: {result}"),
+        ));
+    }
+    Ok(())
+}
+
+fn load_legacy_blocks_from_path(chain_path: &Path) -> NodeResult<Vec<Block>> {
     let file = File::open(chain_path)?;
     let reader = BufReader::new(file);
     let mut blocks = Vec::new();
@@ -244,15 +637,10 @@ fn load_blocks_from_path(chain_path: &Path) -> NodeResult<Vec<Block>> {
     if blocks.is_empty() {
         return Err(NodeError::ChainNotInitialized(chain_path.to_path_buf()));
     }
-
-    // Structural integrity (maturity): catch truncated/corrupt append chains early.
-    // Full consensus (PoW, signatures) remains in Chain::from_blocks / validate_chain.
     verify_chain_structure(chain_path, &blocks)?;
-
     Ok(blocks)
 }
 
-/// Verify contiguous heights and previous_hash links without full consensus revalidation.
 pub fn verify_chain_structure(chain_path: &Path, blocks: &[Block]) -> NodeResult<()> {
     if blocks.is_empty() {
         return Ok(());
@@ -268,10 +656,10 @@ pub fn verify_chain_structure(chain_path: &Path, blocks: &[Block]) -> NodeResult
         });
     }
     for index in 1..blocks.len() {
-        let prev = &blocks[index - 1];
+        let previous = &blocks[index - 1];
         let block = &blocks[index];
         let line = index + 1;
-        let expected_height = prev.header.height.saturating_add(1);
+        let expected_height = previous.header.height.saturating_add(1);
         if block.header.height != expected_height {
             return Err(NodeError::InvalidChainFile {
                 path: chain_path.to_path_buf(),
@@ -282,14 +670,14 @@ pub fn verify_chain_structure(chain_path: &Path, blocks: &[Block]) -> NodeResult
                 ),
             });
         }
-        let expected_prev = hash_to_hex(&prev.hash());
-        let actual_prev = hash_to_hex(&block.header.previous_hash);
-        if expected_prev != actual_prev {
+        let expected_previous = hash_to_hex(&previous.hash());
+        let actual_previous = hash_to_hex(&block.header.previous_hash);
+        if expected_previous != actual_previous {
             return Err(NodeError::InvalidChainFile {
                 path: chain_path.to_path_buf(),
                 line,
                 message: format!(
-                    "broken previous_hash link: expected {expected_prev}, found {actual_prev}"
+                    "broken previous_hash link: expected {expected_previous}, found {actual_previous}"
                 ),
             });
         }
@@ -318,65 +706,122 @@ mod tests {
         .to_string()
     }
 
-    #[test]
-    fn tip_append_grows_file_without_losing_history() {
-        let dir = tempfile::tempdir().expect("temp");
-        let store = JsonlBlockStore::new(dir.path());
-        let miner = miner_address();
-        let genesis = devnet_genesis(&miner).expect("genesis");
-        store.append_with_tip_link(&genesis).expect("genesis");
-        let after_g = fs::metadata(chain_file_path(dir.path()))
-            .expect("meta")
-            .len();
-        // Tip-link only cares about previous_hash; body validity is checked by consensus callers.
+    fn linked_child(genesis: &Block) -> Block {
         let mut child = genesis.clone();
         child.header.height = 1;
         child.header.previous_hash = genesis.hash();
-        store.append_with_tip_link(&child).expect("child");
-        let after_c = fs::metadata(chain_file_path(dir.path()))
-            .expect("meta2")
-            .len();
-        assert!(after_c > after_g, "append should grow the chain file");
+        child
+    }
+
+    #[test]
+    fn bundled_sqlite_contains_wal_reset_fix() {
+        assert!(rusqlite::version_number() >= MINIMUM_SAFE_SQLITE_VERSION);
+    }
+
+    #[test]
+    fn tip_append_persists_transactionally() {
+        let dir = tempfile::tempdir().expect("temp");
+        let store = SqliteBlockStore::new(dir.path());
+        let genesis = devnet_genesis(&miner_address()).expect("genesis");
+        store.append_with_tip_link(&genesis).expect("genesis");
+        store
+            .append_with_tip_link(&linked_child(&genesis))
+            .expect("child");
         let loaded = store.load_blocks().expect("load");
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].header.height, 0);
         assert_eq!(loaded[1].header.height, 1);
+        verify_database_integrity(dir.path()).expect("integrity");
     }
 
     #[test]
-    fn replace_validated_rewrites_full_file() {
+    fn replace_validated_archives_detached_block() {
         let dir = tempfile::tempdir().expect("temp");
-        let store = JsonlBlockStore::new(dir.path());
-        let miner = miner_address();
-        let genesis = devnet_genesis(&miner).expect("genesis");
+        let store = SqliteBlockStore::new(dir.path());
+        let genesis = devnet_genesis(&miner_address()).expect("genesis");
+        let child = linked_child(&genesis);
         store.append_with_tip_link(&genesis).expect("genesis");
-        let tip = hash_to_hex(&genesis.hash());
-        let only_genesis = vec![genesis.clone()];
+        store.append_with_tip_link(&child).expect("child");
+        let tip = hash_to_hex(&child.hash());
         store
-            .replace_validated(&tip, &only_genesis, |_cur, _cand| Ok(()))
+            .replace_validated(
+                &tip,
+                std::slice::from_ref(&genesis),
+                |_current, _candidate| Ok(()),
+            )
             .expect("replace");
-        let loaded = store.load_blocks().expect("load");
-        assert_eq!(loaded.len(), 1);
+        assert_eq!(store.load_blocks().expect("load"), vec![genesis]);
+        let connection = store.open_read_connection().expect("open");
+        let orphan_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM orphaned_blocks", [], |row| row.get(0))
+            .expect("count");
+        assert_eq!(orphan_count, 1);
     }
 
     #[test]
     fn load_rejects_broken_previous_hash_link() {
         let dir = tempfile::tempdir().expect("temp");
-        let store = JsonlBlockStore::new(dir.path());
-        let miner = miner_address();
-        let genesis = devnet_genesis(&miner).expect("genesis");
+        let store = SqliteBlockStore::new(dir.path());
+        let genesis = devnet_genesis(&miner_address()).expect("genesis");
         store.append_with_tip_link(&genesis).expect("genesis");
-        let mut orphan = genesis.clone();
-        orphan.header.height = 1;
-        // Intentionally wrong previous_hash (not tip).
+        let mut orphan = linked_child(&genesis);
         orphan.header.previous_hash = vireon_core::Hash::zero();
-        store
-            .append_unchecked(&orphan)
-            .expect("write corrupt fixture");
-        let err = store.load_blocks().expect_err("must reject broken link");
-        assert!(
-            matches!(err, NodeError::InvalidChainFile { .. }),
-            "unexpected error: {err}"
+        store.append_unchecked(&orphan).expect("corrupt fixture");
+        let error = store.load_blocks().expect_err("must reject broken link");
+        assert!(matches!(error, NodeError::InvalidChainFile { .. }));
+    }
+
+    #[test]
+    fn migrates_legacy_jsonl_without_modifying_it() {
+        let dir = tempfile::tempdir().expect("temp");
+        let genesis = devnet_genesis(&miner_address()).expect("genesis");
+        let legacy_path = legacy_chain_file_path(dir.path());
+        let original = format!("{}\n", serde_json::to_string(&genesis).expect("json"));
+        fs::write(&legacy_path, &original).expect("legacy");
+
+        let loaded = load_blocks(dir.path()).expect("migrate and load");
+        assert_eq!(loaded, vec![genesis]);
+        assert!(chain_database_path(dir.path()).exists());
+        assert_eq!(
+            fs::read_to_string(legacy_path).expect("legacy remains"),
+            original
         );
+    }
+
+    #[test]
+    fn online_backup_is_valid_and_complete() {
+        let dir = tempfile::tempdir().expect("temp");
+        let genesis = devnet_genesis(&miner_address()).expect("genesis");
+        append_block(dir.path(), &genesis).expect("append");
+        let backup_path = dir.path().join("backups").join(CHAIN_DATABASE_FILE_NAME);
+        backup_chain_database(dir.path(), &backup_path).expect("backup");
+        let backup_dir = backup_path.parent().expect("parent");
+        assert_eq!(load_blocks(backup_dir).expect("backup load"), vec![genesis]);
+    }
+
+    #[test]
+    fn wal_allows_a_reader_while_the_node_appends() {
+        let dir = tempfile::tempdir().expect("temp");
+        let store = SqliteBlockStore::new(dir.path());
+        let genesis = devnet_genesis(&miner_address()).expect("genesis");
+        store.append_with_tip_link(&genesis).expect("genesis");
+
+        let reader = store.open_read_connection().expect("reader");
+        let before: i64 = reader
+            .query_row("SELECT COUNT(*) FROM canonical_blocks", [], |row| {
+                row.get(0)
+            })
+            .expect("before count");
+        assert_eq!(before, 1);
+
+        store
+            .append_with_tip_link(&linked_child(&genesis))
+            .expect("append while reader is open");
+        let after: i64 = reader
+            .query_row("SELECT COUNT(*) FROM canonical_blocks", [], |row| {
+                row.get(0)
+            })
+            .expect("after count");
+        assert_eq!(after, 2);
     }
 }

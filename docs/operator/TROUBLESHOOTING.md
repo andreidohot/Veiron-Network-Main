@@ -20,7 +20,10 @@ Symptoms:
 Checks:
 - use `configs/rpc.local.toml`
 - run from the repository root so relative `.vireon-local/...` paths resolve correctly
-- verify `.vireon-local/chain/chain.jsonl` exists
+- verify `.vireon-local/chain/chain.sqlite3` exists; a legacy `chain.jsonl`
+  should be imported automatically on the next node/storage read
+- run `vireon-node --data-dir .vireon-local/chain verify-chain-database`
+  before attempting recovery from a backup
 
 ## Explorer cannot build because `tsc` is missing
 

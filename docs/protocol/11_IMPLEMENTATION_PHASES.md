@@ -10,7 +10,8 @@ maturity gates and `../../TASK_MASTER.md`.
 
 - account ledger, addresses, signing, wallet tooling, mempool, fees, emission;
 - FiroPoW, LWMA, templates, CUDA miner, pool prototype;
-- JSONL chain, P2P v3, cumulative-work fork choice, bounded reorganization;
+- transactional SQLite chain storage, P2P v3, cumulative-work fork choice,
+  bounded reorganization, and detached-block archival;
 - RPC, index synchronization, explorer, website, SDKs;
 - Tauri Windows/Linux Control Center and platform packaging;
 - VPS node/RPC/indexer/admin/pool control plane with non-mining nodes;
@@ -30,8 +31,9 @@ and candidate endpoint health.
 
 ### G3 — multi-host evidence
 
-Header-first/fork-aware synchronization, peer reputation, production storage
-review, multi-host soak, pool maturity/reorg/payout exercises, RPC abuse tests,
+Header-first/fork-aware synchronization, peer reputation, node SQLite
+restore/disk-failure review, indexer/pool storage, multi-host soak,
+pool maturity/reorg/payout exercises, RPC abuse tests,
 and platform upgrade/data-retention QA.
 
 ### G4 — public Mainnet approval

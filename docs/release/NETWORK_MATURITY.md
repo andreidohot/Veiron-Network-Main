@@ -28,7 +28,7 @@ It exists so operators, auditors and agents do not treat a green CI or release-g
 Runnable under Mainnet Candidate / Prototype:
 
 - `vireon-core` consensus and FiroPoW 0.9.4 validation
-- `vireon-node` + JSONL storage + P2P (libp2p) prototype
+- `vireon-node` + transactional SQLite storage + P2P (libp2p) prototype
 - `vireon-rpc-gateway` (loopback / reverse-proxy TLS patterns)
 - `vireon-wallet` CLI, Control Center (**Tauri** is the product target)
 - `vireon-miner` (NVIDIA CUDA-only FiroPoW; no CPU/OpenCL fallback) against RPC or pool
@@ -39,7 +39,7 @@ Runnable under Mainnet Candidate / Prototype:
 Still **not** production-complete (non-exhaustive):
 
 - Independent multi-host soak + public seed topology
-- Production storage durability review (JSONL is candidate-class; atomic rewrites exist)
+- Independent node SQLite backup/restore, disk-failure, and multi-host durability review
 - Full peer scoring / ban policy operational maturity
 - Production mining-pool (HSM payout, multi-instance admission)
 - External independent security review of the live deploy path
@@ -50,8 +50,8 @@ Still **not** production-complete (non-exhaustive):
 
 | Area | Candidate-class now | Still open for G4 |
 |---|---|---|
-| Node storage | **Tip append is O(1) line append** + fsync; reorg still full atomic rewrite; **structural load checks** (height + previous_hash) | Production DB / segment files (TM-301 remainder) |
-| Node reorg | `adopt_candidate_chain` + mempool reconcile + P2P staged fork + **header-first** | Durable branch storage beyond RAM |
+| Node storage | SQLite strict schema; ACID tip/reorg transactions; WAL + `synchronous=FULL`; hash/link checks; JSONL migration; online backup + integrity check | Independent restore/disk-failure drills and multi-host soak |
+| Node reorg | `adopt_candidate_chain` + mempool reconcile + P2P staged fork + **header-first**; detached blocks archived transactionally | Durable resume of pre-adoption branches and deep-reorg recovery |
 | Pool payouts | Confirm requires **on-chain tx lookup** covering each miner amount | Offline/HSM signer, multi-coordinator |
 | Peer scoring | Score + temporary bans (persist `peer-reputation.json`), refuse banned peers | Distributed ban lists, IP-level DDoS edge |
 | Indexer | Tip-hash rebuild, atomic `index.json`, dedicated timer writer, read-only RPC cache, bounded overview/pagination | Incremental detach, continuous daemon as default product |

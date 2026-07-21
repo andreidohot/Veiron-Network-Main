@@ -2,11 +2,12 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use vireon_core::{Network, Transaction};
 use vireon_node::{
-    approve_genesis, balance, default_data_dir, default_mempool_dir, default_miner_address,
-    export_genesis_block, format_status, genesis_approval_status, genesis_hash_hex_from_config,
-    genesis_review_manifest, import_genesis_block, mempool_status, mine_block, mine_pending_block,
-    node_status, peers, print_chain, shutdown, start_node, state, status, submit_transaction,
-    validate_chain, write_genesis_review_manifest, NetworkConfig, DEFAULT_CONFIG_PATH,
+    approve_genesis, backup_chain_database, balance, default_data_dir, default_mempool_dir,
+    default_miner_address, export_genesis_block, format_status, genesis_approval_status,
+    genesis_hash_hex_from_config, genesis_review_manifest, import_genesis_block, mempool_status,
+    mine_block, mine_pending_block, node_status, peers, print_chain, shutdown, start_node, state,
+    status, submit_transaction, validate_chain, verify_database_integrity,
+    write_genesis_review_manifest, NetworkConfig, DEFAULT_CONFIG_PATH,
 };
 
 const NODE_EXAMPLES: &str = "\
@@ -15,6 +16,8 @@ Examples:
   vireon-node --config configs/local.toml --data-dir .vireon-local/chain --mempool-dir .vireon-local/mempool node-status
   vireon-node --config configs/local.toml --data-dir .vireon-local/chain --mempool-dir .vireon-local/mempool mine-block
   vireon-node --config configs/local.toml --data-dir .vireon-local/chain --mempool-dir .vireon-local/mempool validate-chain
+  vireon-node --data-dir .vireon-local/chain backup-chain-database --output .vireon-local/backups/chain.sqlite3
+  vireon-node --data-dir .vireon-local/chain verify-chain-database
   vireon-node --config configs/mainnet-candidate.toml export-genesis-review --output docs/release/GENESIS_REVIEW.mainnet-candidate.json
   vireon-node --config configs/mainnet-candidate.toml approve-genesis --review-file docs/release/GENESIS_REVIEW.mainnet-candidate.json --approved-by \"Operator\" --output docs/release/GENESIS_APPROVAL.mainnet-candidate.json
   vireon-node --config configs/mainnet-candidate.toml export-genesis-block --output docs/release/genesis.mainnet-candidate.block.json
@@ -80,6 +83,13 @@ enum Command {
     MinePendingBlock,
     PrintChain,
     ValidateChain,
+    /// Create a transactionally consistent online SQLite backup.
+    BackupChainDatabase {
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Run SQLite integrity_check against the canonical chain database.
+    VerifyChainDatabase,
     MempoolStatus,
     Balance {
         address: String,
@@ -206,6 +216,21 @@ fn main() {
                 summary.height,
                 summary.block_count,
                 summary.tip_hash
+            )
+        }),
+        Command::BackupChainDatabase { output } => {
+            backup_chain_database(&data_dir, &output).map(|_| {
+                format!(
+                    "backed up chain database data_dir={} output={}",
+                    data_dir.display(),
+                    output.display()
+                )
+            })
+        }
+        Command::VerifyChainDatabase => verify_database_integrity(&data_dir).map(|_| {
+            format!(
+                "valid SQLite chain database data_dir={}",
+                data_dir.display()
             )
         }),
         Command::Balance { address } => {

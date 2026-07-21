@@ -221,7 +221,9 @@ fn invalid_chain_data_is_handled_safely() {
     let error = index_devnet(&data_dir, &index_dir).expect_err("invalid chain must fail");
     assert!(matches!(
         error,
-        IndexerError::Node(vireon_node::NodeError::InvalidChainFile { .. })
+        IndexerError::Node(
+            vireon_node::NodeError::Sqlite(_) | vireon_node::NodeError::InvalidChainDatabase { .. }
+        )
     ));
 }
 

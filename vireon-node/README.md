@@ -16,7 +16,8 @@ templates, submitted-block validation, and libp2p synchronization around
 - bounded direct-extension and divergent-branch synchronization;
 - adoption only after full validation and strictly greater cumulative work;
 - deterministic equal-work retention;
-- atomic canonical JSONL replacement and detached-transaction mempool recovery;
+- transactional SQLite canonical-chain replacement, detached-block archival,
+  and detached-transaction mempool recovery;
 - persistent peer reputation, temporary bans, and refusal of banned peers.
 
 All connected nodes must use P2P protocol v3. Staged reorganization is bounded
@@ -25,15 +26,23 @@ resume, and multi-host soak remain production gates.
 
 ## Persistence and safety
 
-- tip growth uses locked append plus fsync;
-- validated reorganization uses atomic whole-chain replacement;
+- tip growth and validated reorganization use SQLite ACID transactions with
+  WAL, `synchronous=FULL`, a versioned strict schema, and a 30-second busy timeout;
+- reorganization archives detached blocks in `orphaned_blocks` before changing
+  the canonical chain in the same transaction;
+- legacy `chain.jsonl` data is structurally validated and migrated atomically to
+  `chain.sqlite3`; the original JSONL remains untouched as rollback evidence;
+- online backups use SQLite's backup API and are integrity-checked before success;
+- the database must live on a local filesystem with correct locking and sync
+  semantics; NFS/network-share placement is unsupported;
 - candidate genesis review/approval and height-zero checkpoint are mandatory;
 - wrong network/genesis, broken linkage, invalid PoW/difficulty/version/time,
   duplicate transactions, invalid state, and coinbase overpayment are rejected;
 - Mainnet Candidate reset is unavailable and regeneration requires explicit
   `--force-genesis` review flow;
-- `JsonlBlockStore` is the current auditable candidate backend, not the final
-  production storage decision.
+- `SqliteBlockStore` is the accepted cross-platform node backend. Independent
+  backup/restore, disk-failure, and multi-host soak evidence remains required
+  before G4.
 
 ## Mining integration
 
@@ -45,6 +54,7 @@ timestamp, difficulty, transactions, or network identity.
 ## Primary commands
 
 - `start-node`, `node-status`, `validate-chain`, `peers`, `shutdown`;
+- `backup-chain-database`, `verify-chain-database`;
 - `mempool-status`, `balance`, `state`, `submit-tx`;
 - `print-genesis-hash`, `export-genesis-review`, `approve-genesis`,
   `genesis-approval-status`;

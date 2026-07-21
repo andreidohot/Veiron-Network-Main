@@ -24,7 +24,8 @@ Independent solo miners do not combine nonce ranges, shares or rewards. They com
 P2P v3 uses exponential block locators to find a common ancestor, incrementally
 accepts direct extensions, stages divergent branches up to 2,048 blocks, and
 adopts only a fully validated branch with strictly greater cumulative work.
-Detached valid transactions are reconciled back into the mempool and canonical
-JSONL replacement is atomic. Header-first synchronization, disk-backed branch
-storage, deep-reorg recovery, durable resume, production peer scoring/bans,
+Detached valid transactions are reconciled back into the mempool; the SQLite
+canonical-chain change and detached-block archival share one ACID transaction.
+Header-first synchronization, disk-backed pre-adoption branch resume,
+deep-reorg recovery, production peer scoring/bans,
 broader discovery, NAT traversal, and multi-host soak remain required before G4.

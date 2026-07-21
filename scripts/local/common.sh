@@ -196,7 +196,11 @@ backup_local_data() {
   local destination="$BACKUP_DIR/local-backup-$timestamp"
   mkdir -p "$destination"
 
-  [[ -d "$CHAIN_DIR" ]] && cp -R "$CHAIN_DIR" "$destination/chain"
+  if [[ -d "$CHAIN_DIR" && ( -f "$CHAIN_DIR/chain.sqlite3" || -f "$CHAIN_DIR/chain.jsonl" ) ]]; then
+    mkdir -p "$destination/chain"
+    run_node backup-chain-database --output "$destination/chain/chain.sqlite3" >/dev/null
+    [[ -f "$CHAIN_DIR/chain.jsonl" ]] && cp "$CHAIN_DIR/chain.jsonl" "$destination/chain/chain.jsonl"
+  fi
   [[ -d "$MEMPOOL_DIR" ]] && cp -R "$MEMPOOL_DIR" "$destination/mempool"
   [[ -d "$INDEX_DIR" ]] && cp -R "$INDEX_DIR" "$destination/indexer"
   [[ -d "$LOG_DIR" ]] && cp -R "$LOG_DIR" "$destination/logs"

@@ -54,8 +54,8 @@ struct StoredMiningTemplate {
 
 #[derive(Clone, Debug)]
 struct CachedChain {
-    /// Fingerprint of chain.jsonl (len + mtime secs) when loaded.
-    fingerprint: (u64, u64),
+    /// Fingerprint of the SQLite database and WAL when loaded.
+    fingerprint: storage::ChainStorageFingerprint,
     blocks: Arc<Vec<Block>>,
     chain: Arc<Chain>,
     height: Option<u64>,
@@ -124,10 +124,6 @@ fn file_fingerprint(path: &FsPath) -> (u64, u64) {
         }
         Err(_) => (0, 0),
     }
-}
-
-fn chain_file_fingerprint(chain_data_path: &FsPath) -> (u64, u64) {
-    file_fingerprint(&storage::chain_file_path(chain_data_path))
 }
 
 fn index_file_fingerprint(index_data_path: &FsPath) -> (u64, u64) {
@@ -422,7 +418,7 @@ fn unix_seconds() -> u64 {
 
 pub fn load_chain(state: &RpcState) -> RpcResult<LoadedChain> {
     let chain_path = FsPath::new(&state.config.chain_data_path);
-    let fingerprint = chain_file_fingerprint(chain_path);
+    let fingerprint = storage::chain_storage_fingerprint(chain_path);
 
     // Hold the lock through a cache miss so concurrent dashboard requests do
     // not all replay and validate the complete chain after the same new block.

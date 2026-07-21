@@ -9,7 +9,7 @@ Status: Mainnet Candidate / mixed implementation maturity
 | Windows/Linux Control Center | Tauri 1.0.0 Mainnet Candidate; unsigned candidate packages |
 | CUDA miner | Implemented NVIDIA CUDA-only FiroPoW miner |
 | Wallet CLI / platform keystore | Prototype / candidate; production recovery and signing review incomplete |
-| Explorer / Indexer / RPC | Implemented candidate services; production storage and abuse hardening incomplete |
+| Explorer / Indexer / RPC | Implemented candidate services reading the node SQLite store; index snapshots and abuse hardening remain incomplete |
 | Website/Admin | Implemented website and CMS prototype with honest candidate data boundaries |
 | SDKs and examples | Prototype developer clients |
 | Android | Wallet/monitor prototype; no local mining and no unauthenticated remote control |

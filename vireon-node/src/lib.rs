@@ -43,6 +43,9 @@ pub use peer_reputation::{
     ReputationStore, DEFAULT_BAN_SECONDS, DEFAULT_SCORE, REPUTATION_FILE_NAME, SEVERE_BAN_SECONDS,
 };
 pub use storage::{
-    append_block, append_block_unchecked, load_blocks, verify_chain_structure, BlockStore,
-    JsonlBlockStore, CHAIN_FILE_NAME, CHAIN_LOCK_FILE_NAME,
+    append_block, append_block_unchecked, backup_chain_database, chain_database_path,
+    chain_storage_exists, chain_storage_fingerprint, load_blocks, verify_chain_structure,
+    verify_database_integrity, BlockStore, ChainStorageFingerprint, FileFingerprint,
+    SqliteBlockStore, CHAIN_DATABASE_FILE_NAME, CHAIN_FILE_NAME, CHAIN_LOCK_FILE_NAME,
+    LEGACY_CHAIN_FILE_NAME,
 };

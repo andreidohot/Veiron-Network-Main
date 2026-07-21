@@ -607,8 +607,20 @@ function Backup-LocalData {
     $backupPath = Join-Path $script:BackupsDir "local-backup-$timestamp"
     New-Item -ItemType Directory -Force -Path $backupPath | Out-Null
 
+    $chainDatabase = Join-Path $script:ChainDir "chain.sqlite3"
+    $legacyChain = Join-Path $script:ChainDir "chain.jsonl"
+    if ((Test-Path -LiteralPath $chainDatabase) -or (Test-Path -LiteralPath $legacyChain)) {
+        $chainBackupDir = Join-Path $backupPath "chain"
+        New-Item -ItemType Directory -Force -Path $chainBackupDir | Out-Null
+        Invoke-NodeCommand -CommandArgs @(
+            "backup-chain-database", "--output", (Join-Path $chainBackupDir "chain.sqlite3")
+        ) | Out-Null
+        if (Test-Path -LiteralPath $legacyChain) {
+            Copy-Item -LiteralPath $legacyChain -Destination (Join-Path $chainBackupDir "chain.jsonl") -Force
+        }
+    }
+
     foreach ($entry in @(
-        @{ Source = $script:ChainDir; Name = "chain" },
         @{ Source = $script:MempoolDir; Name = "mempool" },
         @{ Source = $script:IndexerDir; Name = "indexer" },
         @{ Source = $script:LogsDir; Name = "logs" }

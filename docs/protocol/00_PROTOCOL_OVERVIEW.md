@@ -20,7 +20,8 @@ Status: Implemented / Mainnet Candidate / not public Mainnet
 ## Open protocol work
 
 - stable final block and transaction serialization/test-vector freezes;
-- production storage, branch persistence, and header-first synchronization;
+- SQLite restore/disk-failure evidence, durable pre-adoption branch resume, and
+  header-first synchronization;
 - smart-contract VM and deterministic gas model;
 - final genesis allocation/treasury policy;
 - longer-term scaling, governance, and checkpoint-relaxation policy.

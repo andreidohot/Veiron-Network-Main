@@ -270,7 +270,10 @@ fn invalid_chain_file_is_rejected() {
     fs::write(storage::chain_file_path(&data_dir), "{not-json}\n").expect("invalid chain file");
 
     let error = validate_chain(&config_path, &data_dir).expect_err("invalid chain should fail");
-    assert!(matches!(error, NodeError::InvalidChainFile { .. }));
+    assert!(matches!(
+        error,
+        NodeError::Sqlite(_) | NodeError::InvalidChainDatabase { .. }
+    ));
 }
 
 #[test]

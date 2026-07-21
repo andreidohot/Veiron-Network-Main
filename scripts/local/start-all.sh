@@ -19,7 +19,7 @@ show_local_summary
 
 start_background_process "node" "$WORKSPACE_ROOT" "$(node_start_command)"
 for _ in $(seq 1 120); do
-  if is_managed_process_running node && [[ -f "$CHAIN_DIR/chain.jsonl" ]]; then
+  if is_managed_process_running node && { [[ -f "$CHAIN_DIR/chain.sqlite3" ]] || [[ -f "$CHAIN_DIR/chain.jsonl" ]]; }; then
     break
   fi
   sleep 1

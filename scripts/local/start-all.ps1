@@ -25,7 +25,8 @@ function Invoke-LocalStartup {
             return $true
         }
 
-        if (-not (Test-Path (Join-Path $script:ChainDir "chain.jsonl"))) {
+        if (-not (Test-Path (Join-Path $script:ChainDir "chain.sqlite3")) -and
+            -not (Test-Path (Join-Path $script:ChainDir "chain.jsonl"))) {
             return $false
         }
 

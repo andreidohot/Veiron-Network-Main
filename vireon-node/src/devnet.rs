@@ -8,7 +8,7 @@ use crate::mempool::{
     PendingTransactionRecord, MAX_PENDING_TXS_PER_SENDER,
 };
 use crate::p2p::{load_p2p_status, run_p2p_service};
-use crate::storage::{self, BlockStore, JsonlBlockStore};
+use crate::storage::{self, BlockStore, SqliteBlockStore};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::fmt::Write as _;
@@ -559,7 +559,7 @@ pub fn submit_mined_block(
 ) -> NodeResult<SubmittedMinedBlock> {
     let config = NetworkConfig::load_from_path(config_path)?;
     ensure_network_storage_path(config.network, data_dir)?;
-    let store = JsonlBlockStore::new(data_dir);
+    let store = SqliteBlockStore::new(data_dir);
     store.append_validated(candidate, |blocks, candidate| {
         let mut chain = build_validated_chain(config_path, &config, blocks)?;
         chain.append_block(candidate.clone())?;
@@ -607,7 +607,7 @@ pub fn adopt_candidate_chain(
 ) -> NodeResult<ChainReorgSummary> {
     let config = NetworkConfig::load_from_path(config_path)?;
     ensure_network_storage_path(config.network, data_dir)?;
-    let store = JsonlBlockStore::new(data_dir);
+    let store = SqliteBlockStore::new(data_dir);
     let observed = store.load_blocks()?;
     let expected_tip = observed
         .last()
@@ -1656,9 +1656,10 @@ pub fn import_genesis_block(
 ) -> NodeResult<String> {
     let config = NetworkConfig::load_from_path(config_path)?;
     let marker_path = genesis_marker_path(data_dir);
-    if marker_path.exists() && !force {
+    if (marker_path.exists() || storage::chain_storage_exists(data_dir)) && !force {
         return Err(NodeError::Input(
-            "genesis marker already exists; pass --force to replace chain root".to_owned(),
+            "genesis marker or chain database already exists; pass --force to replace chain root"
+                .to_owned(),
         ));
     }
     let content = fs::read_to_string(genesis_file)?;
@@ -1683,11 +1684,8 @@ pub fn import_genesis_block(
         let _ = fs::remove_dir_all(data_dir);
     }
     storage::ensure_data_dir(data_dir)?;
-    // Clear any partial files
-    let store_path = data_dir.join("chain.jsonl");
-    if store_path.exists() {
-        fs::remove_file(&store_path)?;
-    }
+    // Any pre-existing database or legacy JSONL requires --force above. This
+    // prevents an import from silently replacing or auto-migrating chain data.
     let tip_path = data_dir.join("chain-tip.json");
     if tip_path.exists() {
         fs::remove_file(&tip_path)?;
@@ -2064,9 +2062,9 @@ fn file_runtime_fingerprint(path: &Path) -> (u64, Option<SystemTime>) {
 fn runtime_data_fingerprint(
     data_dir: &Path,
     mempool_dir: &Path,
-) -> ((u64, Option<SystemTime>), (u64, Option<SystemTime>)) {
+) -> (storage::ChainStorageFingerprint, (u64, Option<SystemTime>)) {
     (
-        file_runtime_fingerprint(&storage::chain_file_path(data_dir)),
+        storage::chain_storage_fingerprint(data_dir),
         file_runtime_fingerprint(&mempool_file_path(mempool_dir)),
     )
 }
