@@ -13,6 +13,11 @@ export CONTROLLER_URL_TOML='""'; [[ -n "${CONTROLLER_URL:-}" ]] && CONTROLLER_UR
 case "$component" in
  node)
   render /app/templates/node.toml.template "$config_dir/node.toml"
+  if [[ ! -s "$chain_dir/chain.jsonl" ]]; then
+    vireon-node --config "$config_dir/node.toml" --data-dir "$chain_dir" \
+      import-genesis-block \
+      --genesis-file /app/docs/release/genesis.mainnet-candidate.block.json
+  fi
   stop_node(){ vireon-node --config "$config_dir/node.toml" --data-dir "$chain_dir" --mempool-dir "$mempool_dir" shutdown || true; }
   trap stop_node TERM INT
   vireon-node --config "$config_dir/node.toml" --data-dir "$chain_dir" --mempool-dir "$mempool_dir" start-node & child=$!; wait "$child" ;;

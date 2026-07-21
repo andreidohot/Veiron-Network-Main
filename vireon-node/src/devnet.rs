@@ -1661,18 +1661,22 @@ pub fn import_genesis_block(
             "genesis marker already exists; pass --force to replace chain root".to_owned(),
         ));
     }
-    if config.network.requires_explicit_allow() {
-        verified_mainnet_genesis_manifest(config_path)?;
-    }
     let content = fs::read_to_string(genesis_file)?;
     let genesis: Block = serde_json::from_str(&content)?;
-    let expected = deterministic_genesis_from_config(config_path)?;
-    if genesis.hash() != expected.hash() {
-        return Err(NodeError::Input(format!(
-            "imported genesis hash {} does not match config-deterministic hash {}",
-            hash_to_hex(&genesis.hash()),
-            hash_to_hex(&expected.hash())
-        )));
+    if config.network.requires_explicit_allow() {
+        // Candidate imports must stay fast on non-mining VPS hosts. The
+        // published approval hash is authoritative, so validating the supplied
+        // block against it is both stricter and cheaper than re-mining genesis.
+        verify_existing_genesis(config_path, std::slice::from_ref(&genesis))?;
+    } else {
+        let expected = deterministic_genesis_from_config(config_path)?;
+        if genesis.hash() != expected.hash() {
+            return Err(NodeError::Input(format!(
+                "imported genesis hash {} does not match config-deterministic hash {}",
+                hash_to_hex(&genesis.hash()),
+                hash_to_hex(&expected.hash())
+            )));
+        }
     }
     // Wipe existing chain root when forcing.
     if force {

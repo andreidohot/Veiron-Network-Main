@@ -906,6 +906,29 @@ fn genesis_review_manifest_is_deterministic() {
 }
 
 #[test]
+fn mainnet_candidate_imports_the_pinned_premined_genesis() {
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root")
+        .to_path_buf();
+    let config_path = workspace.join("configs/mainnet-candidate.toml");
+    let genesis_path = workspace.join("docs/release/genesis.mainnet-candidate.block.json");
+    let temp_dir = tempdir().expect("tempdir");
+    let data_dir = temp_dir.path().join(".vireon-mainnet/chain");
+
+    let imported = vireon_node::import_genesis_block(&config_path, &data_dir, &genesis_path, false)
+        .expect("import pinned genesis");
+
+    assert_eq!(
+        imported,
+        "0000f156b7271a3807b16efdf96d21ac30011fbdcd2ce68af7fdd3bc77ae4f3d"
+    );
+    let summary = validate_chain(&config_path, &data_dir).expect("validate imported chain");
+    assert_eq!(summary.height, 0);
+    assert_eq!(summary.tip_hash, imported);
+}
+
+#[test]
 fn mainnet_candidate_genesis_approval_status_is_valid() {
     let (_temp_dir, config_path, data_dir, _mempool_dir, approval_path) =
         setup_mainnet_candidate_paths();

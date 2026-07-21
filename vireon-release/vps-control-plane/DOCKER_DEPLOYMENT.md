@@ -5,6 +5,9 @@ This is the corrected Docker-first overlay for Vireon Mainnet Candidate / Protot
 Implemented corrections:
 
 - runtime storage is mounted at `/data/.vireon-mainnet`, so node paths are `/data/.vireon-mainnet/chain`, `/mempool`, `/indexer` and `/node`;
+- an empty chain imports the pinned pre-mined candidate genesis bundled at
+  `docs/release/genesis.mainnet-candidate.block.json`; VPS startup never mines
+  or regenerates candidate genesis;
 - PostgreSQL and postgres-exporter are absent until a real indexer database adapter exists;
 - the web UI, backup scheduler and log collector do not mount Docker socket;
 - one non-public, token-authenticated broker owns the single Docker socket mount and exposes an action allow-list only;
