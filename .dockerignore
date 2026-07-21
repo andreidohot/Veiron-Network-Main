@@ -1,0 +1,66 @@
+# Veiron Docker Build Context — exclude everything unnecessary
+# Context root: Veiron-Network-Main/ (set via compose.yaml build.context: ../..)
+
+# Rust build artefacts
+target/
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+.gitmodules
+
+# Large directories not needed at runtime
+docs/
+shared/brand/
+shared/test-vectors/
+
+# Other projects (each has its own Dockerfile if needed)
+veiron-android/
+veiron-benchmarks/
+veiron-browser/
+veiron-community/
+veiron-contracts/
+veiron-desktop/
+veiron-desktop-tauri/
+veiron-devnet/
+veiron-examples/
+veiron-explorer/
+veiron-faucet/
+veiron-governance/
+veiron-indexer/
+veiron-infra/
+veiron-marketplace/
+veiron-miner/
+veiron-mining-pool/
+veiron-mobile-core/
+veiron-monitoring/
+veiron-node/
+veiron-ops/
+veiron-passport/
+veiron-research/
+veiron-rpc-gateway/
+veiron-sdk/
+veiron-sdk-rust/
+veiron-security/
+veiron-tests/
+veiron-wallet/
+veiron-website/
+
+# OS and IDE garbage
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.suo
+*.user
+*.vs/
+
+# Environment and secrets (should never be in the image)
+.env
+.env.local
+*.env.local
+state/

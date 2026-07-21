@@ -1,0 +1,25 @@
+bind_host = "0.0.0.0"
+bind_port = 10787
+network = "mainnet-candidate"
+network_id = "veiron-mainnet-candidate"
+human_name = "Veiron Mainnet Candidate"
+status_label = "Planned / Mainnet Candidate"
+address_prefix = "vire"
+chain_data_path = "/data/.veiron-mainnet/chain"
+indexer_data_path = "/data/.veiron-mainnet/indexer"
+mempool_data_path = "/data/.veiron-mainnet/mempool"
+public_rpc_allowed = false
+access_mode = "public-submit"
+expose_mining_endpoints = true
+max_mempool_transactions = 4096
+max_request_body_bytes = 65536
+cors_allowed_origin = "https://${RPC_HOST}"
+cors_allowed_origins = [
+  "https://${RPC_HOST}",
+  "https://${CONTROL_HOST}",
+  "http://127.0.0.1:4173",
+  "http://localhost:4173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5173"
+]
+allow_mainnet_candidate = true

@@ -1,0 +1,97 @@
+{
+  email {$ADMIN_EMAIL}
+  admin 0.0.0.0:2019
+  metrics
+  servers {
+    trusted_proxies static private_ranges
+    client_ip_headers X-Forwarded-For CF-Connecting-IP
+  }
+}
+
+(common_security) {
+  encode zstd gzip
+  header {
+    X-Content-Type-Options nosniff
+    X-Frame-Options SAMEORIGIN
+    Referrer-Policy strict-origin-when-cross-origin
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    -Server
+  }
+}
+
+{$CADDY_SCHEME}://{$CONTROL_HOST} {
+  import common_security
+
+  handle_path /setup/* {
+    basic_auth {
+      {$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+    }
+    reverse_proxy veiron-ops:8080
+  }
+
+  handle_path /ops/* {
+    basic_auth {
+      {$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+    }
+    reverse_proxy veiron-ops:8080
+  }
+
+
+  handle {
+    basic_auth {
+      {$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+    }
+    reverse_proxy veiron-control:10788 {
+      header_up X-Veiron-Admin-Authenticated "1"
+    }
+  }
+}
+
+{$CADDY_SCHEME}://{$FLEET_HOST} {
+  import common_security
+
+  handle /fleet/status {
+    rewrite * /public/topology
+    reverse_proxy veiron-control:10788
+  }
+
+  handle /fleet/* {
+    reverse_proxy veiron-control:10788
+  }
+
+  handle {
+    respond "Veiron fleet endpoint" 200
+  }
+}
+
+{$CADDY_SCHEME}://{$RPC_HOST} {
+  import common_security
+  request_body {
+    max_size 1MB
+  }
+  reverse_proxy veiron-rpc:10787 {
+    transport http {
+      keepalive 60s
+      read_timeout 120s
+      write_timeout 120s
+    }
+  }
+}
+
+{$CADDY_SCHEME}://{$GRAFANA_HOST} {
+  import common_security
+  reverse_proxy grafana:3000
+}
+
+{$CADDY_SCHEME}://{$PROMETHEUS_HOST} {
+  import common_security
+  basic_auth {
+    {$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+  }
+  reverse_proxy prometheus:9090
+}
+
+{$CADDY_SCHEME}://{$POOL_HOST} {
+  import common_security
+  reverse_proxy veiron-pool:30787
+}

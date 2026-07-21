@@ -1,0 +1,12 @@
+.env
+state/
+__pycache__/
+*.py[cod]
+*.log
+.installer.env
+state/secrets/*
+!state/secrets/.gitkeep
+state/config/generated/*
+!state/config/generated/.gitkeep
+state/ops/
+state/backups/
