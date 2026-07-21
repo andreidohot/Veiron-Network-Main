@@ -44,6 +44,8 @@ for legacy_path in (
 ):
  assert not (root/legacy_path).exists(), f'legacy host deployment path remains: {legacy_path}'
 main=(root/'compose.yaml').read_text(); installer=(root/'installer.compose.yaml').read_text()
+assert ',mode=' not in main
+assert ',mode=' not in installer
 assert main.count('/var/run/docker.sock:/var/run/docker.sock') == 1
 assert installer.count('/var/run/docker.sock:/var/run/docker.sock') == 1
 assert 'VIREON_COMPONENT: mining-rpc' in main

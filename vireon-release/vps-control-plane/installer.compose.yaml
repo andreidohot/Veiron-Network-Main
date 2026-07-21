@@ -23,7 +23,7 @@ services:
     secrets: [broker_token, cloudflare_api_token, backup_passphrase, r2_secret_access_key]
     networks: [installer-internal]
     read_only: true
-    tmpfs: [/tmp:size=256m,mode=1777]
+    tmpfs: [/tmp:size=256m]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     healthcheck:
@@ -52,7 +52,7 @@ services:
       docker-broker: {condition: service_healthy}
     networks: [installer-internal]
     read_only: true
-    tmpfs: [/tmp:size=128m,mode=1777]
+    tmpfs: [/tmp:size=128m]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
 networks:
