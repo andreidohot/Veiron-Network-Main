@@ -37,6 +37,9 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+
       - name: Setup Rust Android targets
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
