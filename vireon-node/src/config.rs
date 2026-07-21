@@ -30,6 +30,12 @@ pub struct NetworkConfig {
     #[serde(default = "default_max_mempool_transactions")]
     pub max_mempool_transactions: usize,
     pub genesis_config_path: String,
+    /// Immutable human-readable value covered by the published genesis review.
+    ///
+    /// This may differ from `human_name` after a product-brand migration. When
+    /// omitted, new networks use the active human name.
+    #[serde(default)]
+    pub genesis_review_human_name: Option<String>,
     #[serde(default)]
     pub genesis_approval_path: Option<String>,
     pub chain_magic_hex: String,
@@ -159,6 +165,15 @@ impl NetworkConfig {
             )));
         }
         if self
+            .genesis_review_human_name
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(NodeError::ConfigMismatch(
+                "genesis_review_human_name cannot be empty when provided".to_owned(),
+            ));
+        }
+        if self
             .genesis_approval_path
             .as_deref()
             .is_some_and(|value| value.trim().is_empty())
@@ -205,6 +220,12 @@ impl NetworkConfig {
 
     pub fn p2p_listen_port(&self) -> u16 {
         self.p2p_listen_port.unwrap_or(self.default_p2p_port)
+    }
+
+    pub fn genesis_review_human_name(&self) -> &str {
+        self.genesis_review_human_name
+            .as_deref()
+            .unwrap_or(&self.human_name)
     }
 }
 

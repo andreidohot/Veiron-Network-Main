@@ -26,7 +26,7 @@ services:
     environment: {VIREON_COMPONENT: node}
     ports: ["${P2P_PORT:-20787}:20787/tcp"]
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -x vireon-node >/dev/null"]
+      test: ["CMD-SHELL", "ps -C vireon-node -o stat= | grep -Eq '^[^Z]' && test -s /data/.vireon-mainnet/chain/chain.jsonl"]
       interval: 15s
       timeout: 5s
       retries: 12
@@ -190,6 +190,7 @@ services:
     tmpfs: [/tmp:size=128m]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
       interval: 15s

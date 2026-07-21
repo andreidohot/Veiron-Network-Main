@@ -17,6 +17,8 @@ p2p_listen_port = 20787
 max_peers = 128
 max_mempool_transactions = 2048
 genesis_config_path = "configs/genesis.mainnet-candidate.toml"
+# Frozen review metadata: changing this value invalidates the published review hash.
+genesis_review_human_name = "Veiron Mainnet Candidate"
 genesis_approval_path = "docs/release/GENESIS_APPROVAL.mainnet-candidate.json"
 chain_magic_hex = "564d4e43"
 allow_mainnet_candidate = true

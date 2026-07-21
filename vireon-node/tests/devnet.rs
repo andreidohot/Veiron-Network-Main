@@ -895,6 +895,14 @@ fn genesis_review_manifest_is_deterministic() {
         first.deterministic_genesis_hash,
         "0000f156b7271a3807b16efdf96d21ac30011fbdcd2ce68af7fdd3bc77ae4f3d"
     );
+    assert_eq!(first.human_name, "Veiron Mainnet Candidate");
+    assert_eq!(
+        first.review_hash,
+        "751e18b949e408119505cee9150739ce8f35db179d73a9e17b06c4df0e3cbe08"
+    );
+
+    let active = vireon_node::NetworkConfig::load_from_path(&config_path).expect("config");
+    assert_eq!(active.human_name, "Vireon Mainnet Candidate");
 }
 
 #[test]

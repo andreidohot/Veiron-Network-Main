@@ -14,6 +14,8 @@ protocol or persistence values, not product branding:
 - transaction signing domain: `veiron-tx-ed25519-v1`;
 - wallet schema IDs already written to disk;
 - genesis review and approval standard IDs;
+- the `Veiron Mainnet Candidate` human-name field inside the already hashed
+  genesis review and approval records;
 - published wire-test-vector payloads.
 
 Changing any of these values without a separately approved protocol migration

@@ -1231,7 +1231,7 @@ pub fn genesis_review_manifest(config_path: &Path) -> NodeResult<GenesisReviewMa
     let payload = GenesisReviewPayload {
         review_standard_id: GENESIS_REVIEW_STANDARD_ID.to_owned(),
         network_id: network_config.network_id.clone(),
-        human_name: network_config.human_name.clone(),
+        human_name: network_config.genesis_review_human_name().to_owned(),
         status_label: network_config.status_label.clone(),
         address_prefix: network_config.address_prefix.clone(),
         block_time_seconds: network_config.block_time_seconds,
@@ -1742,7 +1742,9 @@ fn validate_pinned_genesis_approval(
             actual: approval.network_id.clone(),
         });
     }
-    if approval.human_name != config.human_name || approval.status_label != config.status_label {
+    if approval.human_name != config.genesis_review_human_name()
+        || approval.status_label != config.status_label
+    {
         return Err(NodeError::ConfigMismatch(
             "genesis approval metadata does not match the active network config".to_owned(),
         ));
