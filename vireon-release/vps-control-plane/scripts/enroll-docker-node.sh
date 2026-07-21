@@ -5,8 +5,8 @@ while (($#)); do case "$1" in --node-name) node="$2";shift 2;; --p2p-host|--doma
 [[ -n $node && -n $host && -n $email && $controller == https://* && -n $token ]] || exit 64
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; repo="$(cd "$root/../.." && pwd)"; cd "$root"; base="${host#*.}"
 mkdir -p state/secrets state/config/generated state/data/{chain,mempool,indexer,node} state/control state/pool
-for n in admin_password grafana_password setup_token broker_token cloudflare_tunnel_token pool_admin_token backup_passphrase; do openssl rand -hex 32 > state/secrets/$n; chmod 600 state/secrets/$n; done
-for n in cloudflare_api_token r2_secret_access_key discord_webhook telegram_bot_token smtp_password; do : > state/secrets/$n; chmod 600 state/secrets/$n; done
+for n in admin_password grafana_password setup_token broker_token cloudflare_tunnel_token pool_admin_token backup_passphrase; do openssl rand -hex 32 > state/secrets/$n; chmod 0444 state/secrets/$n; done
+for n in cloudflare_api_token r2_secret_access_key discord_webhook telegram_bot_token smtp_password; do : > state/secrets/$n; chmod 0444 state/secrets/$n; done
 python3 - "$root" "$repo" "$base" "$node" "$email" "$controller" "$token" "$bundle" "$host" "${seeds[@]}" <<'PY'
 import json
 import sys

@@ -7,8 +7,8 @@ if [[ -d state/rollback ]]; then
   mkdir -p state/legacy-disabled
   mv state/rollback "state/legacy-disabled/rollback-$stamp"
 fi
-for n in broker_token setup_token admin_password grafana_password pool_admin_token backup_passphrase cloudflare_tunnel_token; do [[ -s state/secrets/$n && "$(cat state/secrets/$n)" != validation-placeholder ]] || openssl rand -hex 32 > state/secrets/$n; chmod 600 state/secrets/$n; done
-for n in cloudflare_api_token r2_secret_access_key discord_webhook telegram_bot_token smtp_password; do [[ -e state/secrets/$n ]] || : > state/secrets/$n; chmod 600 state/secrets/$n; done
+for n in broker_token setup_token admin_password grafana_password pool_admin_token backup_passphrase cloudflare_tunnel_token; do [[ -s state/secrets/$n && "$(cat state/secrets/$n)" != validation-placeholder ]] || openssl rand -hex 32 > state/secrets/$n; chmod 0444 state/secrets/$n; done
+for n in cloudflare_api_token r2_secret_access_key discord_webhook telegram_bot_token smtp_password; do [[ -e state/secrets/$n ]] || : > state/secrets/$n; chmod 0444 state/secrets/$n; done
 python3 - "$root" "$repo" <<'P'
 from pathlib import Path
 import re,sys

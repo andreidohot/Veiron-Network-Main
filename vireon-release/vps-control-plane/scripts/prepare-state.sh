@@ -13,6 +13,7 @@ create_owned() {
   local path
   for path in "$@"; do
     install -d -m 0750 -o "$uid" -g "$gid" "$path"
+    chown -R "$uid:$gid" "$path"
   done
 }
 
@@ -23,6 +24,12 @@ create_owned 10001 10001 \
 create_owned 65534 65534 state/prometheus state/alertmanager
 create_owned 472 472 state/grafana
 create_owned 1000 1000 state/caddy/data state/caddy/config
-create_owned 0 0 state/alloy state/backups state/metrics state/ops state/repair-backups
+create_owned 473 473 state/alloy
+create_owned 0 0 state/backups state/metrics state/ops state/repair-backups
+
+# Compose file-backed secrets are bind mounts, so the source mode is retained.
+# The parent directory remains root-only (0700); read-only file mode allows only
+# the explicitly mounted secret to be read by non-root container users.
+find state/secrets -maxdepth 1 -type f -exec chmod 0444 {} +
 
 echo "Vireon state permissions prepared."

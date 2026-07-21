@@ -131,7 +131,7 @@ fi
   exit 69
 }
 printf '%s\n' "$tunnel_token" > "$secrets_dir/cloudflare_tunnel_token"
-chmod 0600 "$secrets_dir/cloudflare_tunnel_token"
+chmod 0444 "$secrets_dir/cloudflare_tunnel_token"
 
 ingress="$(jq -n \
   --arg control "$CONTROL_HOST" \
