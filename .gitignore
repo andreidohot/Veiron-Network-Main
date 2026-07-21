@@ -97,6 +97,7 @@ Desktop.ini
 /TASK_MASTER.md
 /COMMANDS.md
 /info_and_taks/*
+.env
 
 # Misc local outputs
 rpc-gateway.log
