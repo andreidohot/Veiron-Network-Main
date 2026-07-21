@@ -25,15 +25,35 @@ concurrency:
 
 jobs:
   android-debug:
-    runs-on: self-hosted
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
+      - name: Setup Java
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Setup Rust Android targets
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Install Android NDK and cargo-ndk
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;29.0.14206865"
+          cargo install cargo-ndk --version 4.1.2 --locked
+
       - name: Build and verify Android debug APK
         working-directory: vireon-android
-        shell: powershell
-        run: .\gradlew.bat --no-daemon clean testDebugUnitTest lintDebug assembleDebugAndroidTest assembleDebug verifyDebugNativeLibraries
+        shell: bash
+        run: ./gradlew --no-daemon clean testDebugUnitTest lintDebug assembleDebugAndroidTest assembleDebug verifyDebugNativeLibraries
 
       - name: Upload Android debug APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
