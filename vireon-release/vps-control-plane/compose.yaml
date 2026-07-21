@@ -320,7 +320,7 @@ services:
     image: grafana/alloy:v1.9.2
     container_name: vireon-alloy
     restart: unless-stopped
-    user: "0:0"
+    user: "473:0"
     networks: [vireon-internal]
     command: ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data"]
     volumes:

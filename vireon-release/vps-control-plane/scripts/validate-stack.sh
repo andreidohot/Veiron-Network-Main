@@ -54,6 +54,7 @@ assert 'RPC_ACCESS_MODE: private-mining' in main
 assert 'RPC_EXPOSE_MINING: "false"' in main
 assert 'working_dir: /app' in main
 assert 'create_owned 473 473 state/alloy' in (root/'scripts/prepare-state.sh').read_text()
+assert 'user: "473:0"' in main
 assert 'chmod 0444' in (root/'scripts/prepare-state.sh').read_text()
 assert 'ports:' not in main.split('  vireon-mining-rpc:', 1)[1].split('  vireon-indexer:', 1)[0]
 proxy=(root/'docker/caddy/Caddyfile.template').read_text()
